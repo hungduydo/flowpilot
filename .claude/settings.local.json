@@ -1,0 +1,17 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(grep -r \"n8n\\\\|workflow\\\\|automation\" /Users/user/Documents/workspace --include=*.ts --include=*.js --include=*.json --include=*.md)",
+      "Bash(grep -r \"POST\\\\|GET\\\\|PUT\\\\|DELETE\\\\|axios\\\\|fetch\" /Users/user/Documents/workspace/dofamilytree/frontend/src/lib --include=*.ts -l)",
+      "Bash(grep -r \"redis\\\\|cache\\\\|queue\\\\|job\\\\|event\" /Users/user/Documents/workspace/backend/src --include=*.ts -l)",
+      "Bash(gh api:*)",
+      "WebFetch(domain:docs.n8n.io)",
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "Bash(cp:*)",
+      "WebFetch(domain:n8n.io)",
+      "WebSearch",
+      "WebFetch(domain:latenode.com)",
+      "WebFetch(domain:community.n8n.io)"
+    ]
+  }
+}
