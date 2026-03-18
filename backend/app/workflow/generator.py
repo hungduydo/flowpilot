@@ -287,14 +287,25 @@ class WorkflowGenerator:
 
     def _post_process(self, workflow_json: dict[str, Any]) -> dict[str, Any]:
         """Post-process the generated workflow JSON to ensure n8n API compatibility."""
-        # Ensure all nodes have UUIDs
+        # Ensure all nodes have UUIDs and webhook nodes have webhookId
         for node in workflow_json.get("nodes", []):
             if not node.get("id") or len(node["id"]) < 10:
                 node["id"] = str(uuid.uuid4())
+            # Webhook nodes need a webhookId for n8n to register them
+            if "webhook" in node.get("type", "").lower() and not node.get("webhookId"):
+                node["webhookId"] = str(uuid.uuid4())
 
         # Ensure settings exist
         if "settings" not in workflow_json:
             workflow_json["settings"] = {"executionOrder": "v1"}
+
+        # If workflow has Respond to Webhook node, ensure Webhook trigger has responseMode
+        node_types = {n.get("type", "") for n in workflow_json.get("nodes", [])}
+        has_respond_node = "n8n-nodes-base.respondToWebhook" in node_types
+        if has_respond_node:
+            for node in workflow_json.get("nodes", []):
+                if node.get("type") == "n8n-nodes-base.webhook":
+                    node.setdefault("parameters", {})["responseMode"] = "responseNode"
 
         # Clean nodes: fix parameters, remove invalid keys and null values
         for node in workflow_json.get("nodes", []):

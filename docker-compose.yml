@@ -43,8 +43,9 @@ services:
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
       - N8N_BASE_URL=http://n8n:5678
       - N8N_API_KEY=${N8N_API_KEY}
-      - OLLAMA_BASE_URL=http://host.docker.internal:11434
+      - OLLAMA_BASE_URL=${OLLAMA_BASE_URL:-https://ollama.com}
       - OLLAMA_MODEL=${OLLAMA_MODEL:-mistral:latest}
+      - OLLAMA_API_KEY=${OLLAMA_API_KEY:-}
       - CHROMA_HOST=chromadb
       - CHROMA_PORT=8000
     depends_on:
@@ -59,9 +60,8 @@ services:
     volumes:
       - ./backend:/app
 
-  # ─── Next.js Frontend (Phase 4 — run with: docker compose --profile frontend up) ───
+  # ─── Next.js Frontend ───
   frontend:
-    profiles: ["frontend"]
     build:
       context: ./frontend
       dockerfile: Dockerfile
@@ -72,8 +72,13 @@ services:
       - NEXT_PUBLIC_API_URL=http://localhost:8000
       - NEXT_PUBLIC_WS_URL=ws://localhost:8000
       - NEXT_PUBLIC_N8N_URL=http://localhost:5678
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+      - /app/.next
     depends_on:
       - backend
+    restart: unless-stopped
 
   # ─── PostgreSQL (shared: app DB + n8n DB) ───
   postgres:

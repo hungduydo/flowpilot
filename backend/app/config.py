@@ -27,9 +27,10 @@ class Settings(BaseSettings):
     anthropic_api_key: str = ""
     anthropic_model: str = "claude-sonnet-4-20250514"
 
-    # Ollama (Local LLM)
-    ollama_base_url: str = "http://localhost:11434"
-    ollama_model: str = "qwen2.5:14b"
+    # Ollama (Local or Cloud)
+    ollama_base_url: str = "https://ollama.com"
+    ollama_model: str = "mistral:latest"
+    ollama_api_key: str = ""  # Required for Ollama Cloud
 
     # n8n
     n8n_base_url: str = "http://localhost:5678"

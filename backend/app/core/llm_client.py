@@ -48,13 +48,18 @@ def get_openai_client() -> AsyncOpenAI:
 
 
 def get_ollama_client() -> AsyncOpenAI:
-    """Ollama exposes OpenAI-compatible API at /v1/."""
+    """Ollama exposes OpenAI-compatible API at /v1/. Works for both local and cloud."""
     global _ollama_client
     if _ollama_client is None:
+        api_key = settings.ollama_api_key or "ollama"
         _ollama_client = AsyncOpenAI(
             base_url=f"{settings.ollama_base_url}/v1",
-            api_key="ollama",  # Ollama doesn't need a real key
-            timeout=300.0,  # Ollama local can be slow
+            api_key=api_key,
+            timeout=300.0,
+            default_headers=(
+                {"Authorization": f"Bearer {settings.ollama_api_key}"}
+                if settings.ollama_api_key else {}
+            ),
         )
     return _ollama_client
 
@@ -216,6 +221,105 @@ async def chat_completion(
 
 
 # ═══════════════════════════════════════════════════════════════════
+#  STREAMING CHAT COMPLETION
+# ═══════════════════════════════════════════════════════════════════
+
+from collections.abc import AsyncGenerator
+
+
+async def _stream_ollama(
+    messages: list[dict], system_text: str,
+    model: str, temperature: float, max_tokens: int,
+) -> AsyncGenerator[str, None]:
+    client = get_ollama_client()
+    all_messages = []
+    if system_text:
+        all_messages.append({"role": "system", "content": system_text})
+    all_messages.extend(messages)
+
+    stream = await client.chat.completions.create(
+        model=model,
+        messages=all_messages,
+        temperature=temperature,
+        max_tokens=max_tokens,
+        stream=True,
+    )
+    async for chunk in stream:
+        delta = chunk.choices[0].delta if chunk.choices else None
+        if delta and delta.content:
+            yield delta.content
+
+
+async def _stream_anthropic(
+    messages: list[dict], system_text: str,
+    model: str, temperature: float, max_tokens: int,
+) -> AsyncGenerator[str, None]:
+    client = get_anthropic_client()
+    async with client.messages.stream(
+        model=model,
+        max_tokens=max_tokens,
+        temperature=temperature,
+        system=system_text or "You are a helpful assistant.",
+        messages=messages,
+    ) as stream:
+        async for text in stream.text_stream:
+            yield text
+
+
+async def _stream_openai(
+    messages: list[dict], system_text: str,
+    model: str, temperature: float, max_tokens: int,
+) -> AsyncGenerator[str, None]:
+    client = get_openai_client()
+    all_messages = []
+    if system_text:
+        all_messages.append({"role": "system", "content": system_text})
+    all_messages.extend(messages)
+
+    stream = await client.chat.completions.create(
+        model=model,
+        messages=all_messages,
+        temperature=temperature,
+        max_tokens=max_tokens,
+        stream=True,
+    )
+    async for chunk in stream:
+        delta = chunk.choices[0].delta if chunk.choices else None
+        if delta and delta.content:
+            yield delta.content
+
+
+async def chat_completion_stream(
+    messages: list[dict[str, str]],
+    model: str | None = None,
+    temperature: float = 0.7,
+    max_tokens: int | None = None,
+    system: str | None = None,
+    provider: str | None = None,
+) -> AsyncGenerator[str, None]:
+    """
+    Streaming chat completion. Yields token strings as they arrive.
+    """
+    resolved_provider = _resolve_provider(provider)
+    resolved_model = _resolve_model(resolved_provider, model)
+    resolved_max_tokens = max_tokens or settings.max_output_tokens
+
+    system_text, chat_messages = _extract_system(messages)
+    system_text = system or system_text
+    chat_messages = _fix_message_order(chat_messages)
+
+    dispatch = {
+        "openai": _stream_openai,
+        "anthropic": _stream_anthropic,
+        "ollama": _stream_ollama,
+    }
+    async for token in dispatch[resolved_provider](
+        chat_messages, system_text, resolved_model, temperature, resolved_max_tokens
+    ):
+        yield token
+
+
+# ═══════════════════════════════════════════════════════════════════
 #  STRUCTURED OUTPUT (Workflow JSON generation)
 # ═══════════════════════════════════════════════════════════════════
 
@@ -354,7 +458,7 @@ async def _structured_ollama(
         model=model,
         messages=compact_messages,
         temperature=temperature,
-        max_tokens=settings.max_output_tokens,
+        max_tokens=8192,
         response_format={"type": "json_object"},
     )
     content = response.choices[0].message.content or ""
@@ -673,11 +777,21 @@ def _extract_json(text: str) -> dict:
     raise ValueError(f"Could not extract JSON from response: {text[:200]}...")
 
 
+def _ollama_headers() -> dict[str, str]:
+    """Build auth headers for Ollama (needed for cloud, empty for local)."""
+    if settings.ollama_api_key:
+        return {"Authorization": f"Bearer {settings.ollama_api_key}"}
+    return {}
+
+
 async def check_ollama_status() -> dict[str, Any]:
     """Check if Ollama is running and what models are available."""
     try:
         async with httpx.AsyncClient(timeout=5.0) as client:
-            resp = await client.get(f"{settings.ollama_base_url}/api/tags")
+            resp = await client.get(
+                f"{settings.ollama_base_url}/api/tags",
+                headers=_ollama_headers(),
+            )
             if resp.status_code == 200:
                 data = resp.json()
                 models = [m["name"] for m in data.get("models", [])]
@@ -700,6 +814,7 @@ async def pull_ollama_model(model_name: str | None = None) -> str:
         resp = await client.post(
             f"{settings.ollama_base_url}/api/pull",
             json={"name": model, "stream": False},
+            headers=_ollama_headers(),
         )
         if resp.status_code == 200:
             return f"Model '{model}' pulled successfully"

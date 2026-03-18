@@ -1,0 +1,64 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    @apply bg-surface-950 text-surface-100 antialiased;
+  }
+}
+
+@layer utilities {
+  .scrollbar-thin {
+    scrollbar-width: thin;
+    scrollbar-color: theme('colors.surface.700') transparent;
+  }
+  .scrollbar-thin::-webkit-scrollbar {
+    width: 6px;
+  }
+  .scrollbar-thin::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  .scrollbar-thin::-webkit-scrollbar-thumb {
+    background-color: theme('colors.surface.700');
+    border-radius: 3px;
+  }
+}
+
+/* Typing indicator animation */
+@keyframes typing {
+  0%, 60%, 100% { opacity: 0.3; transform: translateY(0); }
+  30% { opacity: 1; transform: translateY(-4px); }
+}
+.typing-dot {
+  animation: typing 1.4s infinite;
+}
+.typing-dot:nth-child(2) { animation-delay: 0.2s; }
+.typing-dot:nth-child(3) { animation-delay: 0.4s; }
+
+/* Markdown in chat */
+.chat-markdown h1, .chat-markdown h2, .chat-markdown h3 {
+  @apply font-semibold mt-3 mb-1;
+}
+.chat-markdown h1 { @apply text-lg; }
+.chat-markdown h2 { @apply text-base; }
+.chat-markdown p { @apply mb-2 leading-relaxed; }
+.chat-markdown ul, .chat-markdown ol { @apply ml-4 mb-2; }
+.chat-markdown ul { @apply list-disc; }
+.chat-markdown ol { @apply list-decimal; }
+.chat-markdown li { @apply mb-1; }
+.chat-markdown code {
+  @apply bg-surface-800 text-primary-300 px-1.5 py-0.5 rounded text-sm font-mono;
+}
+.chat-markdown pre {
+  @apply bg-surface-800 rounded-lg p-3 my-2 overflow-x-auto;
+}
+.chat-markdown pre code {
+  @apply bg-transparent px-0 py-0;
+}
+.chat-markdown a {
+  @apply text-primary-400 underline hover:text-primary-300;
+}
+.chat-markdown blockquote {
+  @apply border-l-2 border-surface-600 pl-3 italic text-surface-400 my-2;
+}

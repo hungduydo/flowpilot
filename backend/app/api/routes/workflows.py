@@ -106,9 +106,13 @@ async def list_n8n_workflows(
     name: Optional[str] = None,
     limit: int = Query(default=50, le=100),
 ):
-    """List workflows from n8n server."""
+    """List workflows from n8n server. Merges isArchived from n8n + 'archived' tag."""
     try:
         result = await n8n_client.list_workflows(active=active, name=name, limit=limit)
+        # Ensure isArchived reflects both native field and 'archived' tag
+        for wf in result.get("data", []):
+            if not wf.get("isArchived"):
+                wf["isArchived"] = _has_archived_tag(wf.get("tags", []))
         return result
     except N8nClientError as e:
         raise HTTPException(status_code=e.status_code, detail=e.detail)
@@ -146,6 +150,82 @@ async def deactivate_n8n_workflow(workflow_id: str):
     """Deactivate a workflow on n8n."""
     try:
         return await n8n_client.deactivate_workflow(workflow_id)
+    except N8nClientError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.detail)
+
+
+async def _ensure_tag(tag_name: str) -> dict[str, Any]:
+    """Get or create a tag by name on n8n."""
+    tags_resp = await n8n_client.list_tags()
+    tag_list = tags_resp.get("data", []) if isinstance(tags_resp, dict) else tags_resp
+    for tag in tag_list:
+        if tag.get("name") == tag_name:
+            return tag
+    # Create new tag
+    async with n8n_client._client() as client:
+        response = await client.post("/tags", json={"name": tag_name})
+        return await n8n_client._handle_response(response)
+
+
+def _has_archived_tag(tags: list) -> bool:
+    """Check if tags list contains 'archived' tag."""
+    return any(
+        isinstance(t, dict) and t.get("name") == "archived"
+        for t in (tags or [])
+    )
+
+
+@router.post("/n8n/workflows/{workflow_id}/archive")
+async def archive_n8n_workflow(workflow_id: str):
+    """Archive a workflow on n8n (deactivate + add 'archived' tag)."""
+    try:
+        workflow = await n8n_client.get_workflow(workflow_id)
+
+        # Deactivate if active
+        if workflow.get("active"):
+            await n8n_client.deactivate_workflow(workflow_id)
+
+        # Ensure "archived" tag exists
+        archived_tag = await _ensure_tag("archived")
+
+        # Get current tags and add "archived" if not present
+        tags = workflow.get("tags", []) or []
+        tag_ids = [{"id": t["id"]} for t in tags if isinstance(t, dict) and t.get("id")]
+        if not any(t["id"] == archived_tag["id"] for t in tag_ids):
+            tag_ids.append({"id": archived_tag["id"]})
+
+        # Use PUT /workflows/{id}/tags to assign tags
+        async with n8n_client._client() as client:
+            response = await client.put(f"/workflows/{workflow_id}/tags", json=tag_ids)
+            await n8n_client._handle_response(response)
+
+        logger.info("Workflow archived on n8n", workflow_id=workflow_id)
+        return {"id": workflow_id, "isArchived": True, "status": "archived"}
+    except N8nClientError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.detail)
+
+
+@router.post("/n8n/workflows/{workflow_id}/unarchive")
+async def unarchive_n8n_workflow(workflow_id: str):
+    """Unarchive a workflow on n8n (remove 'archived' tag)."""
+    try:
+        workflow = await n8n_client.get_workflow(workflow_id)
+
+        # Get current tags, remove "archived"
+        tags = workflow.get("tags", []) or []
+        tag_ids = [
+            {"id": t["id"]}
+            for t in tags
+            if isinstance(t, dict) and t.get("id") and t.get("name") != "archived"
+        ]
+
+        # Use PUT /workflows/{id}/tags to assign tags
+        async with n8n_client._client() as client:
+            response = await client.put(f"/workflows/{workflow_id}/tags", json=tag_ids)
+            await n8n_client._handle_response(response)
+
+        logger.info("Workflow unarchived on n8n", workflow_id=workflow_id)
+        return {"id": workflow_id, "isArchived": False, "status": "unarchived"}
     except N8nClientError as e:
         raise HTTPException(status_code=e.status_code, detail=e.detail)
 
@@ -251,3 +331,39 @@ async def llm_info():
     if settings.llm_provider == "ollama":
         info["ollama"] = await check_ollama_status()
     return info
+
+
+# ─── RAG Knowledge Base ───
+
+
+@router.post("/rag/ingest")
+async def rag_ingest():
+    """Ingest all knowledge files into ChromaDB for RAG retrieval."""
+    from app.rag.chroma_client import ingest_all_knowledge
+
+    try:
+        results = ingest_all_knowledge()
+        total = sum(results.values())
+        return {
+            "status": "ok",
+            "total_chunks": total,
+            "files": results,
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/rag/search")
+async def rag_search_endpoint(q: str = Query(..., description="Search query")):
+    """Search the RAG knowledge base."""
+    from app.rag.chroma_client import search
+
+    try:
+        context = search(q, n_results=5)
+        return {
+            "query": q,
+            "context": context,
+            "has_results": bool(context),
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))

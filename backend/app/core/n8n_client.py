@@ -70,11 +70,28 @@ class N8nClient:
     async def create_workflow(self, workflow_json: dict[str, Any]) -> dict[str, Any]:
         """
         Create a new workflow on n8n.
+        If a workflow with the same name exists, update it instead of creating a duplicate.
 
         POST /api/v1/workflows
         Body: { name, nodes, connections, settings }
-        Returns: Created workflow with id
+        Returns: Created/updated workflow with id
         """
+        # Check for existing workflow with same name to avoid duplicates
+        wf_name = workflow_json.get("name", "")
+        if wf_name:
+            try:
+                existing = await self.list_workflows(name=wf_name)
+                for wf in existing.get("data", []):
+                    if wf.get("name") == wf_name:
+                        logger.info(
+                            "Workflow with same name exists, updating instead",
+                            existing_id=wf["id"],
+                            name=wf_name,
+                        )
+                        return await self.update_workflow(wf["id"], workflow_json)
+            except Exception:
+                pass  # If check fails, proceed with create
+
         async with self._client() as client:
             response = await client.post("/workflows", json=workflow_json)
             result = await self._handle_response(response)

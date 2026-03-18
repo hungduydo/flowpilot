@@ -4,10 +4,15 @@ WORKDIR /app
 
 # Install dependencies
 COPY package.json package-lock.json* ./
-RUN npm install || echo "No package.json yet, skipping install"
+RUN npm install
 
 # Copy source
 COPY . .
+
+# Environment variables (build-time defaults, overridden by docker-compose)
+ENV NEXT_PUBLIC_API_URL=http://localhost:8000
+ENV NEXT_PUBLIC_WS_URL=ws://localhost:8000
+ENV NEXT_PUBLIC_N8N_URL=http://localhost:5678
 
 EXPOSE 3000
 
