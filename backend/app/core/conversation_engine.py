@@ -16,6 +16,7 @@ from app.core.llm_client import chat_completion
 from app.core.n8n_client import N8nClientError, n8n_client
 from app.core.prompt_engine import build_chat_prompt
 from app.rag.chroma_client import search as rag_search
+from app.workflow.node_registry import NODE_CATALOG, search_nodes
 from app.db.models import Conversation, Message
 from app.db.repositories import (
     ConversationRepository,
@@ -220,13 +221,58 @@ class ConversationEngine:
 
         return result
 
-    # ── Context assembly with token budgets ─────────────────────
+    # ── Relevance-aware context assembly with token budgets ──────
 
     # Token budgets — prioritized from highest to lowest importance
-    # Total ~6000 tokens max for injected context (rest goes to system prompt + history)
-    TOKEN_BUDGET_KNOWLEDGE = 1500   # User notes (highest priority — explicit rules)
+    TOKEN_BUDGET_KNOWLEDGE = 1500   # User notes (highest priority)
     TOKEN_BUDGET_LEARNING = 1000    # Auto-learned corrections
     TOKEN_BUDGET_RAG = 2000         # RAG retrieval results
+
+    @staticmethod
+    def _extract_keywords(user_message: str) -> set[str]:
+        """Extract keywords from user message for relevance matching.
+
+        Combines explicit words with node registry keyword lookup to build
+        a rich keyword set.  E.g. "post to facebook" → {"post", "facebook",
+        "fb", "meta", "graph", "n8n-nodes-base.facebookGraphApi", ...}
+        """
+        msg_lower = user_message.lower()
+        # Basic word tokenisation (remove noise words)
+        noise = {
+            "a", "an", "the", "is", "are", "was", "were", "be", "been",
+            "to", "for", "of", "in", "on", "at", "by", "and", "or", "but",
+            "with", "from", "this", "that", "it", "i", "me", "my", "we",
+            "you", "your", "can", "will", "do", "does", "did", "has", "have",
+            "not", "no", "so", "if", "when", "then", "than", "also", "just",
+            "very", "please", "help", "want", "need", "like", "should",
+            "create", "make", "build", "tạo", "thêm", "sửa", "xóa",
+            "add", "remove", "update", "delete", "change", "modify",
+            "workflow", "node", "using", "use",
+        }
+        words = set()
+        for w in msg_lower.split():
+            clean = w.strip(".,!?;:'\"()[]{}#@")
+            if clean and len(clean) > 1 and clean not in noise:
+                words.add(clean)
+
+        # Expand with node registry keywords — find matching nodes
+        matched_types: set[str] = set()
+        for word in list(words):
+            matches = search_nodes(word)
+            for node_def in matches:
+                matched_types.add(node_def.type)
+                words.update(node_def.keywords)
+
+        return words | matched_types
+
+    @staticmethod
+    def _relevance_score(text: str, keywords: set[str]) -> float:
+        """Score text relevance against keywords.  0.0–1.0."""
+        if not keywords:
+            return 0.0
+        text_lower = text.lower()
+        hits = sum(1 for kw in keywords if kw in text_lower)
+        return min(1.0, hits / max(1, len(keywords) * 0.3))
 
     def _get_rag_context(self, user_message: str) -> str:
         """Retrieve relevant knowledge from RAG, bounded by token budget."""
@@ -234,19 +280,34 @@ class ConversationEngine:
             raw = rag_search(user_message, n_results=5)
             if not raw:
                 return ""
-            # Trim to budget
             return self._trim_to_budget(raw, self.TOKEN_BUDGET_RAG)
         except Exception as e:
-            logger.warning("RAG search failed, continuing without context", error=str(e))
+            logger.warning("RAG search failed", error=str(e))
             return ""
 
-    async def _get_knowledge_context(self, session: AsyncSession) -> str:
-        """Load active knowledge notes, bounded by token budget."""
+    async def _get_knowledge_context(
+        self, session: AsyncSession, keywords: set[str] | None = None,
+    ) -> str:
+        """Load active knowledge notes ranked by relevance, bounded by budget.
+
+        Notes matching the user's keywords are injected first, then remaining
+        notes fill the rest of the budget.
+        """
         try:
             notes = await KnowledgeNoteRepository.list_all(session, active_only=True)
             if not notes:
                 return ""
-            # Build incrementally, stop when budget exceeded
+
+            # Score and sort by relevance
+            if keywords:
+                scored = [
+                    (self._relevance_score(n.content, keywords), n)
+                    for n in notes
+                ]
+                scored.sort(key=lambda x: x[0], reverse=True)
+                notes = [n for _, n in scored]
+
+            # Build incrementally within budget
             header = "\n\n## User Knowledge Notes (MUST follow these instructions):\n"
             lines: list[str] = []
             used = estimate_tokens(header)
@@ -259,24 +320,54 @@ class ConversationEngine:
                 used += line_tokens
             if not lines:
                 return ""
-            logger.debug("Knowledge context", notes_count=len(lines), tokens=used)
+            logger.debug(
+                "Knowledge context",
+                notes_injected=len(lines),
+                notes_total=len(notes),
+                tokens=used,
+            )
             return header + "\n".join(lines)
         except Exception as e:
             logger.warning("Failed to load knowledge notes", error=str(e))
             return ""
 
     async def _get_learning_context(
-        self, session: AsyncSession, node_types: list[str] | None = None
+        self, session: AsyncSession, keywords: set[str] | None = None,
     ) -> str:
-        """Load auto-learned corrections, bounded by token budget.
-        Prioritizes high-frequency fixes and filters by relevant node types.
+        """Load auto-learned corrections ranked by relevance × frequency.
+
+        Records matching the user's node types / keywords get priority.
         """
         try:
+            # Extract node types from keywords for DB-level filtering
+            node_types = None
+            if keywords:
+                node_types = [
+                    kw for kw in keywords
+                    if kw.startswith("n8n-nodes-base.") or kw.startswith("@n8n/")
+                ]
+
             records = await LearningRepository.get_relevant(
-                session, node_types=node_types, limit=30  # fetch more, trim by budget
+                session, node_types=node_types or None, limit=30,
             )
             if not records:
                 return ""
+
+            # Score: relevance × log(frequency) — relevant + common mistakes first
+            import math
+            if keywords:
+                scored = []
+                for r in records:
+                    rel = self._relevance_score(
+                        f"{r.node_type or ''} {r.description}", keywords,
+                    )
+                    freq_score = math.log2(r.frequency + 1)
+                    # Relevant records always rank above irrelevant ones
+                    combined = (1.0 if rel > 0 else 0.0, rel * freq_score, freq_score)
+                    scored.append((combined, r))
+                scored.sort(key=lambda x: x[0], reverse=True)
+                records = [r for _, r in scored]
+
             header = "\n\n## Learned Corrections (avoid these mistakes):\n"
             lines: list[str] = []
             used = estimate_tokens(header)
@@ -289,7 +380,12 @@ class ConversationEngine:
                 used += line_tokens
             if not lines:
                 return ""
-            logger.debug("Learning context", records_count=len(lines), tokens=used)
+            logger.debug(
+                "Learning context",
+                records_injected=len(lines),
+                records_total=len(records),
+                tokens=used,
+            )
             return header + "\n".join(lines)
         except Exception:
             return ""
@@ -300,7 +396,6 @@ class ConversationEngine:
         tokens = estimate_tokens(text)
         if tokens <= budget:
             return text
-        # Cut at paragraph (---) boundaries
         paragraphs = text.split("\n\n---\n\n")
         result_parts: list[str] = []
         used = 0
@@ -323,9 +418,10 @@ class ConversationEngine:
         model: str | None = None,
     ) -> dict[str, Any]:
         """Generate a new workflow."""
+        keywords = self._extract_keywords(user_message)
         rag_context = self._get_rag_context(user_message)
-        knowledge_context = await self._get_knowledge_context(session)
-        learning_context = await self._get_learning_context(session)
+        knowledge_context = await self._get_knowledge_context(session, keywords)
+        learning_context = await self._get_learning_context(session, keywords)
         full_context = rag_context + knowledge_context + learning_context
         logger.info(
             "Context assembled for CREATE",
@@ -452,8 +548,9 @@ class ConversationEngine:
                 ),
             }
 
-        knowledge_context = await self._get_knowledge_context(session)
-        learning_context = await self._get_learning_context(session)
+        keywords = self._extract_keywords(user_message)
+        knowledge_context = await self._get_knowledge_context(session, keywords)
+        learning_context = await self._get_learning_context(session, keywords)
         edited = await self.editor.edit(
             current_workflow, user_message,
             rag_context=knowledge_context + learning_context,
@@ -538,8 +635,9 @@ class ConversationEngine:
         model: str | None = None,
     ) -> dict[str, Any]:
         """Handle general chat with conversation history."""
+        keywords = self._extract_keywords(user_message)
         rag_context = self._get_rag_context(user_message)
-        knowledge_context = await self._get_knowledge_context(session)
+        knowledge_context = await self._get_knowledge_context(session, keywords)
         full_context = rag_context + knowledge_context
         logger.info(
             "Context assembled for CHAT",
