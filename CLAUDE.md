@@ -92,7 +92,18 @@ curl -X POST http://localhost:8000/api/v1/chat \
 - Knowledge notes system (user-defined rules injected into prompts)
 - Auto-learning feedback loop (captures post-processing fixes, reuses in future prompts)
 - Relevance-based context injection (keyword extraction → ranked knowledge/learning)
-- Token budget system (Knowledge: 1500, Learning: 1000, RAG: 2000 tokens)
+- Token budget system (Knowledge: 1500, Learning: 1000, RAG: 2000, Templates: 1500 tokens)
+
+## Phase 6: Learn from n8n Templates ✅
+- n8n public template API client (`api.n8n.io`) — search, fetch, batch import
+- Template distillation engine (workflow JSON → embedding-friendly text)
+- New ChromaDB collection `n8n_templates` for community templates
+- DB model `N8nTemplate` tracking imported templates + ChromaDB chunk IDs
+- Background import (FastAPI BackgroundTasks, rate-limited, async)
+- Template context injection (4th layer in intelligence pipeline, 1500 token budget)
+- Browse/search/import UI in sidebar "Templates" tab
+- Bulk "Import Top 50 Popular" feature
+- API endpoints: search, import, list imported, stats, delete
 
 ## Known LLM Generation Issues & Auto-Fixes
 All handled in `generator.py` `_fix_node_parameters()` + `_post_process()`:
@@ -122,14 +133,16 @@ All handled in `generator.py` `_fix_node_parameters()` + `_post_process()`:
 - Context manager: `backend/app/core/context_manager.py`
 - Prompt templates: `backend/app/core/prompt_engine.py`
 - n8n API client: `backend/app/core/n8n_client.py`
+- n8n Template client: `backend/app/core/n8n_template_client.py`
+- Template distiller: `backend/app/rag/template_distiller.py`
 - Retry decorators: `backend/app/core/retry.py`
 - Workflow generator: `backend/app/workflow/generator.py`
 - Workflow validator: `backend/app/workflow/validator.py`
 - Workflow editor: `backend/app/workflow/editor.py`
 - Node registry (40+ types): `backend/app/workflow/node_registry.py`
-- DB models: `backend/app/db/models.py` (Conversation, Message, Workflow, WorkflowVersion, KnowledgeNote, LearningRecord)
+- DB models: `backend/app/db/models.py` (Conversation, Message, Workflow, WorkflowVersion, KnowledgeNote, LearningRecord, N8nTemplate)
 - Repositories: `backend/app/db/repositories.py`
-- API routes: `backend/app/api/routes/{chat,conversations,workflows,knowledge,health}.py`
+- API routes: `backend/app/api/routes/{chat,conversations,workflows,knowledge,templates,health}.py`
 - RAG: `backend/app/rag/chroma_client.py`
 - Knowledge base: `backend/app/rag/knowledge/{patterns,nodes,examples}/*.md`
 - Tests: `backend/tests/test_{validator,generator,n8n_client,api}.py`
@@ -141,6 +154,7 @@ All handled in `generator.py` `_fix_node_parameters()` + `_post_process()`:
 - Layout: `frontend/src/components/layout/{Header,Sidebar}.tsx`
 - Workflow: `frontend/src/components/workflow/{WorkflowCard,WorkflowJsonViewer,VersionHistory}.tsx`
 - Knowledge: `frontend/src/components/knowledge/KnowledgePanel.tsx`
+- Templates: `frontend/src/components/templates/TemplatePanel.tsx`
 - UI: `frontend/src/components/ui/{Toast,ToastContainer,Skeleton}.tsx`
 - Hooks: `frontend/src/hooks/{use-chat,use-websocket}.ts`
 - Stores: `frontend/src/stores/{chat-store,toast-store}.ts`
@@ -195,6 +209,14 @@ docker compose exec backend alembic revision --autogenerate -m "description"
 - `POST /api/v1/n8n/workflows/:id/versions/:vid/rollback` — Rollback
 - `GET/POST/PUT/DELETE /api/v1/knowledge/notes` — Knowledge notes
 - `GET/DELETE /api/v1/knowledge/learning/records` — Learning records
+- `GET /api/v1/templates/search` — Search n8n community templates
+- `GET /api/v1/templates/:id` — Get template detail
+- `POST /api/v1/templates/import` — Import specific templates (background)
+- `POST /api/v1/templates/import/popular` — Import top popular (background)
+- `GET /api/v1/templates/imported` — List imported templates
+- `GET /api/v1/templates/imported/stats` — Import statistics
+- `DELETE /api/v1/templates/imported/:id` — Remove imported template
+- `GET /api/v1/templates/categories` — List template categories
 - `POST /api/v1/rag/ingest` — Ingest RAG knowledge
 - `GET /api/v1/rag/search?q=` — Search RAG
 - `GET /api/v1/health` — Health check
@@ -206,6 +228,7 @@ docker compose exec backend alembic revision --autogenerate -m "description"
 - `workflow_versions` — Version snapshots for rollback
 - `knowledge_notes` — User-defined rules (categories: node, credential, pattern, rule)
 - `learning_records` — Auto-captured LLM corrections (type, node_type, frequency)
+- `n8n_templates` — Imported community templates (distilled text, ChromaDB chunk IDs)
 
 ## Intelligence Pipeline
 ```
@@ -213,7 +236,8 @@ User message → Keyword extraction (node registry lookup)
     ├── RAG search (ChromaDB similarity, 2000 token budget)
     ├── Knowledge notes (relevance-ranked, 1500 token budget)
     ├── Learning records (relevance × frequency, 1000 token budget)
-    └── Combined context → LLM prompt
+    ├── n8n Templates (community examples, 1500 token budget)
+    └── Combined context (≤6000 tokens) → LLM prompt
 ```
 
 ## Git Conventions

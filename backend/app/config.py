@@ -41,6 +41,10 @@ class Settings(BaseSettings):
     chroma_host: str = "localhost"
     chroma_port: int = 8100
 
+    # n8n Templates (public API)
+    n8n_template_api_url: str = "https://api.n8n.io/api/templates"
+    template_import_batch_size: int = 10
+
     # LLM Settings
     max_retries: int = 3
     max_context_tokens: int = 100000

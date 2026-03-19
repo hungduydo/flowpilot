@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Index, String, Text, func
+from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, String, Text, func
 from sqlalchemy.dialects.postgresql import JSON, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -123,6 +123,30 @@ class KnowledgeNote(Base):
     updated_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), onupdate=func.now(), nullable=True
     )
+
+
+class N8nTemplate(TimestampMixin, Base):
+    """Imported n8n community templates for RAG knowledge enrichment."""
+    __tablename__ = "n8n_templates"
+    __table_args__ = (
+        Index("ix_n8n_templates_n8n_id", "n8n_template_id", unique=True),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    n8n_template_id: Mapped[int] = mapped_column(
+        Integer, nullable=False, unique=True
+    )  # The n8n.io template ID
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    categories: Mapped[list | None] = mapped_column(JSON, nullable=True)  # ["Marketing", "DevOps"]
+    node_types: Mapped[list | None] = mapped_column(JSON, nullable=True)  # ["n8n-nodes-base.slack", ...]
+    node_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    total_views: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    distilled_text: Mapped[str] = mapped_column(Text, nullable=False)  # Embedding-friendly text
+    chroma_doc_ids: Mapped[list | None] = mapped_column(JSON, nullable=True)  # ChromaDB chunk IDs
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
 
 
 class LearningRecord(Base):

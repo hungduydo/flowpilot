@@ -19,6 +19,7 @@ logger = structlog.get_logger()
 COLLECTION_PATTERNS = "workflow_patterns"
 COLLECTION_NODES = "node_reference"
 COLLECTION_EXAMPLES = "example_workflows"
+COLLECTION_TEMPLATES = "n8n_templates"
 
 _chroma_client = None
 
@@ -192,6 +193,61 @@ def ingest_all_knowledge() -> dict[str, int]:
     return results
 
 
+def ingest_template(
+    template_id: int,
+    distilled_text: str,
+    metadata: dict[str, Any] | None = None,
+) -> list[str]:
+    """
+    Ingest a distilled template text into the n8n_templates collection.
+
+    Returns list of ChromaDB document IDs for tracking.
+    """
+    if not distilled_text.strip():
+        return []
+
+    collection = get_collection(COLLECTION_TEMPLATES)
+
+    chunks = _chunk_markdown(distilled_text)
+    ids = []
+    documents = []
+    metadatas = []
+
+    for i, chunk in enumerate(chunks):
+        content_hash = hashlib.md5(chunk["text"].encode()).hexdigest()[:12]
+        doc_id = f"tpl_{template_id}_{i}_{content_hash}"
+        ids.append(doc_id)
+        documents.append(chunk["text"])
+        metadatas.append({
+            "source": f"n8n_template_{template_id}",
+            "template_id": str(template_id),
+            "chunk_index": i,
+            "category": COLLECTION_TEMPLATES,
+            **(metadata or {}),
+        })
+
+    collection.upsert(ids=ids, documents=documents, metadatas=metadatas)
+
+    logger.info(
+        "Ingested template",
+        template_id=template_id,
+        chunks=len(chunks),
+    )
+    return ids
+
+
+def remove_template_chunks(chroma_doc_ids: list[str]) -> None:
+    """Remove specific template chunks from ChromaDB."""
+    if not chroma_doc_ids:
+        return
+    try:
+        collection = get_collection(COLLECTION_TEMPLATES)
+        collection.delete(ids=chroma_doc_ids)
+        logger.info("Removed template chunks", count=len(chroma_doc_ids))
+    except Exception as e:
+        logger.warning("Failed to remove template chunks", error=str(e))
+
+
 def search(query: str, n_results: int = 5, collection_names: list[str] | None = None) -> str:
     """
     Search across knowledge collections and return formatted context.
@@ -202,6 +258,7 @@ def search(query: str, n_results: int = 5, collection_names: list[str] | None = 
         COLLECTION_PATTERNS,
         COLLECTION_NODES,
         COLLECTION_EXAMPLES,
+        COLLECTION_TEMPLATES,
     ]
 
     all_results = []

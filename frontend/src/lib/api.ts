@@ -247,6 +247,74 @@ export async function deleteLearningRecord(id: string) {
   })
 }
 
+// n8n Templates
+export interface N8nTemplateSearchResult {
+  totalWorkflows: number
+  workflows: Array<{
+    id: number
+    name: string
+    totalViews: number
+    description: string
+    createdAt: string
+    is_imported?: boolean
+    nodes: Array<{ name: string; displayName: string }>
+  }>
+}
+
+export interface ImportedTemplate {
+  id: string
+  n8n_template_id: number
+  name: string
+  description: string | null
+  categories: string[] | null
+  node_types: string[] | null
+  node_count: number
+  total_views: number
+  chunks: number
+  created_at: string | null
+}
+
+export async function searchN8nTemplates(q?: string, category?: string, page = 1, rows = 20) {
+  const params = new URLSearchParams({ page: String(page), rows: String(rows) })
+  if (q) params.set('q', q)
+  if (category) params.set('category', category)
+  return fetchAPI<N8nTemplateSearchResult>(`/api/v1/templates/search?${params}`)
+}
+
+export async function getTemplateCategories() {
+  return fetchAPI<Array<{ name: string; count: number }>>('/api/v1/templates/categories')
+}
+
+export async function importTemplates(templateIds: number[]) {
+  return fetchAPI<{ message: string; new_count: number; skipped?: number }>('/api/v1/templates/import', {
+    method: 'POST',
+    body: JSON.stringify({ template_ids: templateIds }),
+  })
+}
+
+export async function importPopularTemplates(maxCount = 50, category?: string) {
+  return fetchAPI<{ message: string }>('/api/v1/templates/import/popular', {
+    method: 'POST',
+    body: JSON.stringify({ max_count: maxCount, category: category || undefined }),
+  })
+}
+
+export async function getImportedTemplates(page = 1, limit = 50, category?: string) {
+  const params = new URLSearchParams({ page: String(page), limit: String(limit) })
+  if (category) params.set('category', category)
+  return fetchAPI<ImportedTemplate[]>(`/api/v1/templates/imported?${params}`)
+}
+
+export async function getImportedTemplateStats() {
+  return fetchAPI<{ total_templates: number }>('/api/v1/templates/imported/stats')
+}
+
+export async function deleteImportedTemplate(id: string) {
+  return fetchAPI<Record<string, never>>(`/api/v1/templates/imported/${id}`, {
+    method: 'DELETE',
+  })
+}
+
 // Health
 export async function getHealth() {
   return fetchAPI<{

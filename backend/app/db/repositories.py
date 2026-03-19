@@ -7,7 +7,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.db.models import Conversation, Message, Workflow, WorkflowVersion, KnowledgeNote, LearningRecord
+from app.db.models import Conversation, Message, N8nTemplate, Workflow, WorkflowVersion, KnowledgeNote, LearningRecord
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -290,6 +290,129 @@ class KnowledgeNoteRepository:
             .order_by(KnowledgeNote.created_at.desc())
         )
         return list(result.scalars().all())
+
+
+# ═══════════════════════════════════════════════════════════════════
+#  n8n Templates
+# ═══════════════════════════════════════════════════════════════════
+
+
+class N8nTemplateRepository:
+
+    @staticmethod
+    async def create(
+        session: AsyncSession,
+        n8n_template_id: int,
+        name: str,
+        distilled_text: str,
+        description: str | None = None,
+        categories: list[str] | None = None,
+        node_types: list[str] | None = None,
+        node_count: int = 0,
+        total_views: int = 0,
+        chroma_doc_ids: list[str] | None = None,
+    ) -> N8nTemplate:
+        template = N8nTemplate(
+            n8n_template_id=n8n_template_id,
+            name=name,
+            description=description,
+            categories=categories,
+            node_types=node_types,
+            node_count=node_count,
+            total_views=total_views,
+            distilled_text=distilled_text,
+            chroma_doc_ids=chroma_doc_ids,
+        )
+        session.add(template)
+        await session.flush()
+        return template
+
+    @staticmethod
+    async def get_by_n8n_id(
+        session: AsyncSession, n8n_template_id: int
+    ) -> N8nTemplate | None:
+        result = await session.execute(
+            select(N8nTemplate).where(
+                N8nTemplate.n8n_template_id == n8n_template_id
+            )
+        )
+        return result.scalar_one_or_none()
+
+    @staticmethod
+    async def list_all(
+        session: AsyncSession,
+        category: str | None = None,
+        active_only: bool = True,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> list[N8nTemplate]:
+        stmt = (
+            select(N8nTemplate)
+            .order_by(N8nTemplate.total_views.desc())
+            .limit(limit)
+            .offset(offset)
+        )
+        if active_only:
+            stmt = stmt.where(N8nTemplate.is_active == True)
+        if category:
+            # Filter by category in JSON array
+            stmt = stmt.where(
+                N8nTemplate.categories.cast(func.text()).ilike(f"%{category}%")
+            )
+        result = await session.execute(stmt)
+        return list(result.scalars().all())
+
+    @staticmethod
+    async def get_imported_ids(session: AsyncSession) -> set[int]:
+        """Get all imported n8n template IDs for quick duplicate check."""
+        result = await session.execute(
+            select(N8nTemplate.n8n_template_id).where(N8nTemplate.is_active == True)
+        )
+        return set(result.scalars().all())
+
+    @staticmethod
+    async def delete(session: AsyncSession, template_id: uuid.UUID) -> N8nTemplate | None:
+        """Soft delete (deactivate) a template."""
+        template = await session.get(N8nTemplate, template_id)
+        if template:
+            template.is_active = False
+            await session.flush()
+        return template
+
+    @staticmethod
+    async def hard_delete(session: AsyncSession, template_id: uuid.UUID) -> bool:
+        """Permanently delete a template."""
+        template = await session.get(N8nTemplate, template_id)
+        if template:
+            await session.delete(template)
+            await session.flush()
+            return True
+        return False
+
+    @staticmethod
+    async def get_stats(session: AsyncSession) -> dict[str, Any]:
+        """Get import statistics."""
+        total_result = await session.execute(
+            select(func.count()).select_from(N8nTemplate).where(N8nTemplate.is_active == True)
+        )
+        total = total_result.scalar_one()
+
+        # We can't easily group by JSON array elements in SQLAlchemy,
+        # so just return total count
+        return {
+            "total_templates": total,
+        }
+
+    @staticmethod
+    async def update_chroma_ids(
+        session: AsyncSession,
+        template_id: uuid.UUID,
+        chroma_doc_ids: list[str],
+    ) -> None:
+        template = await session.get(N8nTemplate, template_id)
+        if template:
+            template.chroma_doc_ids = chroma_doc_ids
+            await session.flush()
 
 
 # ═══════════════════════════════════════════════════════════════════

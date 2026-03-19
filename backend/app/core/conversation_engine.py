@@ -15,7 +15,7 @@ from app.core.context_manager import ContextWindowManager, estimate_tokens
 from app.core.llm_client import chat_completion
 from app.core.n8n_client import N8nClientError, n8n_client
 from app.core.prompt_engine import build_chat_prompt
-from app.rag.chroma_client import search as rag_search
+from app.rag.chroma_client import COLLECTION_TEMPLATES, search as rag_search
 from app.workflow.node_registry import NODE_CATALOG, search_nodes
 from app.db.models import Conversation, Message
 from app.db.repositories import (
@@ -227,6 +227,7 @@ class ConversationEngine:
     TOKEN_BUDGET_KNOWLEDGE = 1500   # User notes (highest priority)
     TOKEN_BUDGET_LEARNING = 1000    # Auto-learned corrections
     TOKEN_BUDGET_RAG = 2000         # RAG retrieval results
+    TOKEN_BUDGET_TEMPLATES = 1500   # n8n community template examples
 
     @staticmethod
     def _extract_keywords(user_message: str) -> set[str]:
@@ -390,6 +391,24 @@ class ConversationEngine:
         except Exception:
             return ""
 
+    def _get_template_context(self, user_message: str, keywords: set[str] | None = None) -> str:
+        """Retrieve relevant n8n community template examples, bounded by token budget."""
+        try:
+            raw = rag_search(
+                user_message,
+                n_results=5,
+                collection_names=[COLLECTION_TEMPLATES],
+            )
+            if not raw:
+                return ""
+            trimmed = self._trim_to_budget(raw, self.TOKEN_BUDGET_TEMPLATES)
+            if trimmed:
+                return "\n\n## Reference Templates (proven patterns from n8n community):\n" + trimmed
+            return ""
+        except Exception as e:
+            logger.warning("Template context retrieval failed", error=str(e))
+            return ""
+
     @staticmethod
     def _trim_to_budget(text: str, budget: int) -> str:
         """Trim text to fit within a token budget, cutting at paragraph boundaries."""
@@ -422,12 +441,14 @@ class ConversationEngine:
         rag_context = self._get_rag_context(user_message)
         knowledge_context = await self._get_knowledge_context(session, keywords)
         learning_context = await self._get_learning_context(session, keywords)
-        full_context = rag_context + knowledge_context + learning_context
+        template_context = self._get_template_context(user_message, keywords)
+        full_context = rag_context + knowledge_context + learning_context + template_context
         logger.info(
             "Context assembled for CREATE",
             rag_tokens=estimate_tokens(rag_context),
             knowledge_tokens=estimate_tokens(knowledge_context),
             learning_tokens=estimate_tokens(learning_context),
+            template_tokens=estimate_tokens(template_context),
             total_tokens=estimate_tokens(full_context),
         )
         workflow_json, fixes = await self.generator.generate(
@@ -638,11 +659,13 @@ class ConversationEngine:
         keywords = self._extract_keywords(user_message)
         rag_context = self._get_rag_context(user_message)
         knowledge_context = await self._get_knowledge_context(session, keywords)
-        full_context = rag_context + knowledge_context
+        template_context = self._get_template_context(user_message, keywords)
+        full_context = rag_context + knowledge_context + template_context
         logger.info(
             "Context assembled for CHAT",
             rag_tokens=estimate_tokens(rag_context),
             knowledge_tokens=estimate_tokens(knowledge_context),
+            template_tokens=estimate_tokens(template_context),
             total_tokens=estimate_tokens(full_context),
         )
         system_prompt = build_chat_prompt(rag_context=full_context)
