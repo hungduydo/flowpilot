@@ -11,7 +11,7 @@ from typing import Any
 import structlog
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.context_manager import ContextWindowManager
+from app.core.context_manager import ContextWindowManager, estimate_tokens
 from app.core.llm_client import chat_completion
 from app.core.n8n_client import N8nClientError, n8n_client
 from app.core.prompt_engine import build_chat_prompt
@@ -220,24 +220,47 @@ class ConversationEngine:
 
         return result
 
-    # ── Intent handlers ─────────────────────────────────────────
+    # ── Context assembly with token budgets ─────────────────────
+
+    # Token budgets — prioritized from highest to lowest importance
+    # Total ~6000 tokens max for injected context (rest goes to system prompt + history)
+    TOKEN_BUDGET_KNOWLEDGE = 1500   # User notes (highest priority — explicit rules)
+    TOKEN_BUDGET_LEARNING = 1000    # Auto-learned corrections
+    TOKEN_BUDGET_RAG = 2000         # RAG retrieval results
 
     def _get_rag_context(self, user_message: str) -> str:
-        """Retrieve relevant knowledge from RAG."""
+        """Retrieve relevant knowledge from RAG, bounded by token budget."""
         try:
-            return rag_search(user_message, n_results=3)
+            raw = rag_search(user_message, n_results=5)
+            if not raw:
+                return ""
+            # Trim to budget
+            return self._trim_to_budget(raw, self.TOKEN_BUDGET_RAG)
         except Exception as e:
             logger.warning("RAG search failed, continuing without context", error=str(e))
             return ""
 
     async def _get_knowledge_context(self, session: AsyncSession) -> str:
-        """Load active knowledge notes and format as prompt context."""
+        """Load active knowledge notes, bounded by token budget."""
         try:
             notes = await KnowledgeNoteRepository.list_all(session, active_only=True)
             if not notes:
                 return ""
-            notes_text = "\n".join(f"- {n.content}" for n in notes)
-            return f"\n\n## User Knowledge Notes (MUST follow these instructions):\n{notes_text}"
+            # Build incrementally, stop when budget exceeded
+            header = "\n\n## User Knowledge Notes (MUST follow these instructions):\n"
+            lines: list[str] = []
+            used = estimate_tokens(header)
+            for n in notes:
+                line = f"- {n.content}"
+                line_tokens = estimate_tokens(line)
+                if used + line_tokens > self.TOKEN_BUDGET_KNOWLEDGE:
+                    break
+                lines.append(line)
+                used += line_tokens
+            if not lines:
+                return ""
+            logger.debug("Knowledge context", notes_count=len(lines), tokens=used)
+            return header + "\n".join(lines)
         except Exception as e:
             logger.warning("Failed to load knowledge notes", error=str(e))
             return ""
@@ -245,23 +268,49 @@ class ConversationEngine:
     async def _get_learning_context(
         self, session: AsyncSession, node_types: list[str] | None = None
     ) -> str:
-        """Load auto-learned corrections for prompt injection."""
+        """Load auto-learned corrections, bounded by token budget.
+        Prioritizes high-frequency fixes and filters by relevant node types.
+        """
         try:
             records = await LearningRepository.get_relevant(
-                session, node_types=node_types, limit=15
+                session, node_types=node_types, limit=30  # fetch more, trim by budget
             )
             if not records:
                 return ""
-            lines = [
-                f"- [{r.node_type or 'general'}] {r.description} (seen {r.frequency}x)"
-                for r in records
-            ]
-            return (
-                "\n\n## Learned Corrections (avoid these mistakes):\n"
-                + "\n".join(lines)
-            )
+            header = "\n\n## Learned Corrections (avoid these mistakes):\n"
+            lines: list[str] = []
+            used = estimate_tokens(header)
+            for r in records:
+                line = f"- [{r.node_type or 'general'}] {r.description} (seen {r.frequency}x)"
+                line_tokens = estimate_tokens(line)
+                if used + line_tokens > self.TOKEN_BUDGET_LEARNING:
+                    break
+                lines.append(line)
+                used += line_tokens
+            if not lines:
+                return ""
+            logger.debug("Learning context", records_count=len(lines), tokens=used)
+            return header + "\n".join(lines)
         except Exception:
             return ""
+
+    @staticmethod
+    def _trim_to_budget(text: str, budget: int) -> str:
+        """Trim text to fit within a token budget, cutting at paragraph boundaries."""
+        tokens = estimate_tokens(text)
+        if tokens <= budget:
+            return text
+        # Cut at paragraph (---) boundaries
+        paragraphs = text.split("\n\n---\n\n")
+        result_parts: list[str] = []
+        used = 0
+        for para in paragraphs:
+            para_tokens = estimate_tokens(para)
+            if used + para_tokens > budget:
+                break
+            result_parts.append(para)
+            used += para_tokens
+        return "\n\n---\n\n".join(result_parts) if result_parts else text[:budget * 3]
 
     async def _handle_create(
         self,
@@ -278,6 +327,13 @@ class ConversationEngine:
         knowledge_context = await self._get_knowledge_context(session)
         learning_context = await self._get_learning_context(session)
         full_context = rag_context + knowledge_context + learning_context
+        logger.info(
+            "Context assembled for CREATE",
+            rag_tokens=estimate_tokens(rag_context),
+            knowledge_tokens=estimate_tokens(knowledge_context),
+            learning_tokens=estimate_tokens(learning_context),
+            total_tokens=estimate_tokens(full_context),
+        )
         workflow_json, fixes = await self.generator.generate(
             user_message, rag_context=full_context, provider=provider, model=model,
         )
@@ -484,7 +540,14 @@ class ConversationEngine:
         """Handle general chat with conversation history."""
         rag_context = self._get_rag_context(user_message)
         knowledge_context = await self._get_knowledge_context(session)
-        system_prompt = build_chat_prompt(rag_context=rag_context + knowledge_context)
+        full_context = rag_context + knowledge_context
+        logger.info(
+            "Context assembled for CHAT",
+            rag_tokens=estimate_tokens(rag_context),
+            knowledge_tokens=estimate_tokens(knowledge_context),
+            total_tokens=estimate_tokens(full_context),
+        )
+        system_prompt = build_chat_prompt(rag_context=full_context)
 
         # Load history and build context window
         history = await MessageRepository.get_history(session, conversation.id)
