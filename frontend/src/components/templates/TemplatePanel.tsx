@@ -42,12 +42,12 @@ export function TemplatePanel() {
   return (
     <div className="flex flex-col h-full">
       {/* Sub-tabs */}
-      <div className="flex border-b border-surface-800 px-2">
+      <div className="flex border-b border-surface-800 px-4">
         <button
           onClick={() => setSubTab('browse')}
-          className={`flex-1 py-1.5 text-[11px] font-medium text-center transition-colors ${
+          className={`px-4 py-2.5 text-sm font-medium text-center transition-colors ${
             subTab === 'browse'
-              ? 'text-primary-400 border-b border-primary-400'
+              ? 'text-primary-400 border-b-2 border-primary-400'
               : 'text-surface-500 hover:text-surface-300'
           }`}
         >
@@ -55,9 +55,9 @@ export function TemplatePanel() {
         </button>
         <button
           onClick={() => setSubTab('imported')}
-          className={`flex-1 py-1.5 text-[11px] font-medium text-center transition-colors ${
+          className={`px-4 py-2.5 text-sm font-medium text-center transition-colors ${
             subTab === 'imported'
-              ? 'text-primary-400 border-b border-primary-400'
+              ? 'text-primary-400 border-b-2 border-primary-400'
               : 'text-surface-500 hover:text-surface-300'
           }`}
         >
@@ -132,82 +132,83 @@ function BrowseTemplates() {
 
   return (
     <div className="flex flex-col flex-1 overflow-hidden">
-      {/* Search */}
-      <div className="p-2 space-y-2">
-        <div className="flex gap-1">
+      {/* Search + Bulk import */}
+      <div className="px-4 py-3 space-y-2 border-b border-surface-800/50">
+        <div className="flex gap-2">
           <input
             type="text"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
             placeholder="Search templates..."
-            className="flex-1 px-2.5 py-1.5 bg-surface-800 border border-surface-700 rounded text-sm text-surface-200 placeholder-surface-500 focus:outline-none focus:border-primary-500"
+            className="flex-1 px-3 py-2 bg-surface-800 border border-surface-700 rounded-lg text-sm text-surface-200 placeholder-surface-500 focus:outline-none focus:border-primary-500"
           />
           <button
             onClick={handleSearch}
             disabled={loading}
-            className="px-2 py-1.5 bg-surface-800 border border-surface-700 rounded hover:bg-surface-700 transition-colors"
+            className="px-3 py-2 bg-surface-800 border border-surface-700 rounded-lg hover:bg-surface-700 transition-colors"
           >
-            <Search size={14} className="text-surface-400" />
+            <Search size={15} className="text-surface-400" />
+          </button>
+          <button
+            onClick={handleImportPopular}
+            className="flex items-center gap-1.5 px-3 py-2 text-xs text-primary-400 hover:text-primary-300 bg-primary-400/5 hover:bg-primary-400/10 border border-primary-400/20 rounded-lg transition-colors whitespace-nowrap"
+          >
+            <TrendingUp size={13} />
+            Import Top 50
           </button>
         </div>
-
-        {/* Bulk import */}
-        <button
-          onClick={handleImportPopular}
-          className="w-full flex items-center justify-center gap-1.5 px-2 py-1.5 text-[11px] text-primary-400 hover:text-primary-300 bg-primary-400/5 hover:bg-primary-400/10 border border-primary-400/20 rounded transition-colors"
-        >
-          <TrendingUp size={12} />
-          Import Top 50 Popular
-        </button>
       </div>
 
       {/* Results */}
-      <div className="flex-1 overflow-y-auto scrollbar-thin p-2 space-y-1">
+      <div className="flex-1 overflow-y-auto scrollbar-thin p-3 space-y-1">
         {loading ? (
-          <div className="flex items-center justify-center py-8">
-            <RefreshCw size={16} className="text-surface-500 animate-spin" />
+          <div className="flex items-center justify-center py-12">
+            <RefreshCw size={20} className="text-surface-500 animate-spin" />
           </div>
         ) : templates.length === 0 ? (
-          <p className="text-surface-500 text-xs text-center py-8">
+          <p className="text-surface-500 text-sm text-center py-12">
             No templates found
           </p>
         ) : (
           templates.map((tpl) => (
             <div
               key={tpl.id}
-              className="group px-2.5 py-2 rounded-lg hover:bg-surface-800/50 transition-colors"
+              className="group flex items-start gap-3 px-3 py-2.5 rounded-lg hover:bg-surface-800/50 transition-colors"
             >
-              <div className="flex items-start gap-2">
-                <Package size={14} className="shrink-0 mt-0.5 text-surface-500" />
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm text-surface-200 truncate">{tpl.name}</p>
-                  <div className="flex items-center gap-2 mt-0.5">
-                    <span className="flex items-center gap-0.5 text-[10px] text-surface-500">
-                      <Eye size={10} />
-                      {tpl.totalViews.toLocaleString()}
-                    </span>
-                    <span className="flex items-center gap-0.5 text-[10px] text-surface-500">
-                      <Layers size={10} />
-                      {tpl.nodes?.length || 0} nodes
-                    </span>
-                  </div>
-                </div>
-                {tpl.is_imported ? (
-                  <span className="shrink-0 flex items-center gap-0.5 text-[10px] text-green-400">
-                    <Check size={12} />
-                  </span>
-                ) : (
-                  <button
-                    onClick={() => handleImport(tpl.id)}
-                    disabled={importing.has(tpl.id)}
-                    className="shrink-0 p-1 opacity-0 group-hover:opacity-100 text-primary-400 hover:text-primary-300 transition-all"
-                    title="Import template"
-                  >
-                    <Download size={13} />
-                  </button>
+              <Package size={16} className="shrink-0 mt-0.5 text-surface-500" />
+              <div className="flex-1 min-w-0">
+                <p className="text-sm text-surface-200">{tpl.name}</p>
+                {tpl.description && (
+                  <p className="text-xs text-surface-500 mt-0.5 line-clamp-1">{tpl.description}</p>
                 )}
+                <div className="flex items-center gap-3 mt-1">
+                  <span className="flex items-center gap-1 text-[11px] text-surface-500">
+                    <Eye size={11} />
+                    {tpl.totalViews.toLocaleString()}
+                  </span>
+                  <span className="flex items-center gap-1 text-[11px] text-surface-500">
+                    <Layers size={11} />
+                    {tpl.nodes?.length || 0} nodes
+                  </span>
+                </div>
               </div>
+              {tpl.is_imported ? (
+                <span className="shrink-0 flex items-center gap-1 text-xs text-green-400 px-2 py-1 rounded-md bg-green-400/10">
+                  <Check size={13} />
+                  Imported
+                </span>
+              ) : (
+                <button
+                  onClick={() => handleImport(tpl.id)}
+                  disabled={importing.has(tpl.id)}
+                  className="shrink-0 flex items-center gap-1 px-2.5 py-1 text-xs opacity-0 group-hover:opacity-100 text-primary-400 hover:text-primary-300 bg-primary-400/10 hover:bg-primary-400/15 rounded-md transition-all"
+                  title="Import template"
+                >
+                  <Download size={13} />
+                  Import
+                </button>
+              )}
             </div>
           ))
         )}
@@ -215,21 +216,21 @@ function BrowseTemplates() {
 
       {/* Pagination */}
       {totalCount > 15 && (
-        <div className="flex items-center justify-between px-3 py-1.5 border-t border-surface-800 text-[11px] text-surface-500">
+        <div className="flex items-center justify-between px-4 py-2 border-t border-surface-800 text-xs text-surface-500">
           <button
             onClick={() => { setPage(page - 1); doSearch(query, page - 1) }}
             disabled={page <= 1}
-            className="hover:text-surface-300 disabled:opacity-30"
+            className="px-2 py-1 hover:text-surface-300 disabled:opacity-30 transition-colors"
           >
-            <ChevronLeft size={14} />
+            <ChevronLeft size={15} />
           </button>
           <span>Page {page} · {totalCount.toLocaleString()} templates</span>
           <button
             onClick={() => { setPage(page + 1); doSearch(query, page + 1) }}
             disabled={page * 15 >= totalCount}
-            className="hover:text-surface-300 disabled:opacity-30 rotate-180"
+            className="px-2 py-1 hover:text-surface-300 disabled:opacity-30 rotate-180 transition-colors"
           >
-            <ChevronLeft size={14} />
+            <ChevronLeft size={15} />
           </button>
         </div>
       )}
@@ -279,79 +280,80 @@ function ImportedTemplates() {
     <div className="flex flex-col flex-1 overflow-hidden">
       {/* Stats bar */}
       {stats && (
-        <div className="flex items-center gap-2 px-3 py-2 border-b border-surface-800 text-[11px] text-surface-500">
-          <Package size={12} />
+        <div className="flex items-center gap-2 px-4 py-2.5 border-b border-surface-800 text-xs text-surface-500">
+          <Package size={14} />
           <span>{stats.total_templates} templates imported</span>
           <button
             onClick={refresh}
-            className="ml-auto hover:text-surface-300 transition-colors"
+            className="ml-auto p-1 hover:text-surface-300 transition-colors"
             title="Refresh"
           >
-            <RefreshCw size={12} />
+            <RefreshCw size={13} />
           </button>
         </div>
       )}
 
       {/* List */}
-      <div className="flex-1 overflow-y-auto scrollbar-thin p-2 space-y-0.5">
+      <div className="flex-1 overflow-y-auto scrollbar-thin p-3 space-y-1">
         {loading ? (
-          <div className="flex items-center justify-center py-8">
-            <RefreshCw size={16} className="text-surface-500 animate-spin" />
+          <div className="flex items-center justify-center py-12">
+            <RefreshCw size={20} className="text-surface-500 animate-spin" />
           </div>
         ) : templates.length === 0 ? (
-          <p className="text-surface-500 text-xs text-center py-8">
-            No templates imported yet.<br />
-            Use the Browse tab to import.
-          </p>
+          <div className="text-center py-12">
+            <Package size={28} className="mx-auto text-surface-600 mb-2" />
+            <p className="text-surface-500 text-sm">No templates imported yet</p>
+            <p className="text-surface-600 text-xs mt-1">
+              Use the Browse tab to search and import templates
+            </p>
+          </div>
         ) : (
           templates.map((tpl) => (
             <div
               key={tpl.id}
-              className="group px-2.5 py-2 rounded-lg hover:bg-surface-800/50 transition-colors"
+              className="group flex items-start gap-3 px-3 py-2.5 rounded-lg hover:bg-surface-800/50 transition-colors"
             >
-              <div className="flex items-start gap-2">
-                <Package size={14} className="shrink-0 mt-0.5 text-primary-400/60" />
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm text-surface-200 truncate">{tpl.name}</p>
-                  <div className="flex items-center gap-2 mt-0.5 flex-wrap">
-                    <span className="text-[10px] text-surface-500">
-                      {tpl.node_count} nodes · {tpl.chunks} chunks
+              <Package size={16} className="shrink-0 mt-0.5 text-primary-400/60" />
+              <div className="flex-1 min-w-0">
+                <p className="text-sm text-surface-200">{tpl.name}</p>
+                <div className="flex items-center gap-2 mt-1 flex-wrap">
+                  <span className="text-[11px] text-surface-500">
+                    {tpl.node_count} nodes · {tpl.chunks} chunks
+                  </span>
+                  {tpl.categories?.slice(0, 3).map((cat) => (
+                    <span
+                      key={cat}
+                      className="text-[10px] px-1.5 py-0.5 rounded bg-surface-800 text-surface-400"
+                    >
+                      {cat}
                     </span>
-                    {tpl.categories?.slice(0, 2).map((cat) => (
-                      <span
-                        key={cat}
-                        className="text-[9px] px-1 py-0.5 rounded bg-surface-800 text-surface-400"
-                      >
-                        {cat}
-                      </span>
-                    ))}
-                  </div>
+                  ))}
                 </div>
-                {confirmDeleteId === tpl.id ? (
-                  <div className="flex items-center gap-0.5 shrink-0">
-                    <button
-                      onClick={() => handleDelete(tpl.id)}
-                      className="p-1 text-red-400 hover:text-red-300"
-                    >
-                      <Check size={12} />
-                    </button>
-                    <button
-                      onClick={() => setConfirmDeleteId(null)}
-                      className="p-1 text-surface-500 hover:text-surface-300"
-                    >
-                      <X size={12} />
-                    </button>
-                  </div>
-                ) : (
-                  <button
-                    onClick={() => setConfirmDeleteId(tpl.id)}
-                    className="shrink-0 p-1 opacity-0 group-hover:opacity-100 hover:text-red-400 transition-all"
-                    title="Remove template"
-                  >
-                    <Trash2 size={12} />
-                  </button>
-                )}
               </div>
+              {confirmDeleteId === tpl.id ? (
+                <div className="flex items-center gap-1 shrink-0">
+                  <button
+                    onClick={() => handleDelete(tpl.id)}
+                    className="p-1.5 text-red-400 hover:text-red-300"
+                  >
+                    <Check size={14} />
+                  </button>
+                  <button
+                    onClick={() => setConfirmDeleteId(null)}
+                    className="p-1.5 text-surface-500 hover:text-surface-300"
+                  >
+                    <X size={14} />
+                  </button>
+                </div>
+              ) : (
+                <button
+                  onClick={() => setConfirmDeleteId(tpl.id)}
+                  className="shrink-0 p-1.5 opacity-0 group-hover:opacity-100 hover:text-red-400 transition-all"
+                  title="Remove template"
+                >
+                  <Trash2 size={14} />
+                </button>
+              )}
             </div>
           ))
         )}

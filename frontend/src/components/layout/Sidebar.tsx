@@ -8,7 +8,6 @@ import { formatTimestamp, truncate } from '@/lib/utils'
 import { SkeletonConversationList, SkeletonWorkflowList } from '@/components/ui/Skeleton'
 import { VersionHistory } from '@/components/workflow/VersionHistory'
 import { KnowledgePanel } from '@/components/knowledge/KnowledgePanel'
-import { TemplatePanel } from '@/components/templates/TemplatePanel'
 import {
   Plus,
   MessageSquare,
@@ -51,7 +50,7 @@ export function Sidebar() {
 
   const toast = useToastStore()
   const [n8nWorkflows, setN8nWorkflows] = useState<N8nWf[]>([])
-  const [activeTab, setActiveTab] = useState<'chats' | 'workflows' | 'knowledge' | 'templates'>('chats')
+  const [activeTab, setActiveTab] = useState<'chats' | 'workflows' | 'knowledge'>('chats')
   const [showArchived, setShowArchived] = useState(false)
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
   const [confirmArchiveId, setConfirmArchiveId] = useState<string | null>(null)
@@ -160,23 +159,11 @@ export function Sidebar() {
         >
           Knowledge
         </button>
-        <button
-          onClick={() => setActiveTab('templates')}
-          className={`flex-1 py-2 text-xs font-medium text-center transition-colors ${
-            activeTab === 'templates'
-              ? 'text-primary-400 border-b-2 border-primary-400'
-              : 'text-surface-500 hover:text-surface-300'
-          }`}
-        >
-          Templates
-        </button>
       </div>
 
       {/* Content */}
       <div className="flex-1 overflow-y-auto scrollbar-thin">
-        {activeTab === 'templates' ? (
-          <TemplatePanel />
-        ) : activeTab === 'knowledge' ? (
+        {activeTab === 'knowledge' ? (
           <KnowledgePanel />
         ) : activeTab === 'chats' ? (
           <div className="p-2 space-y-0.5">
