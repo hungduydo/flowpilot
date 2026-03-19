@@ -61,7 +61,11 @@ export function Sidebar() {
   const refreshWorkflows = () => {
     setLoadingWorkflows(true)
     getN8nWorkflows()
-      .then((data) => setN8nWorkflows(data.data || []))
+      .then((data) => {
+        const wfs = data.data || []
+        wfs.sort((a: N8nWf, b: N8nWf) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())
+        setN8nWorkflows(wfs)
+      })
       .catch(() => {
         setN8nWorkflows([])
         toast.addToast('error', 'Failed to load n8n workflows')
