@@ -23,6 +23,9 @@ import {
   TrendingUp,
   RefreshCw,
   ChevronLeft,
+  ChevronDown,
+  ChevronRight,
+  BookOpen,
 } from 'lucide-react'
 
 type SubTab = 'browse' | 'imported'
@@ -244,6 +247,7 @@ function ImportedTemplates() {
   const [stats, setStats] = useState<{ total_templates: number } | null>(null)
   const [loading, setLoading] = useState(true)
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
+  const [expandedId, setExpandedId] = useState<string | null>(null)
 
   const refresh = useCallback(async () => {
     setLoading(true)
@@ -274,6 +278,10 @@ function ImportedTemplates() {
       toast.addToast('error', 'Failed to remove template')
     }
     setConfirmDeleteId(null)
+  }
+
+  const toggleExpand = (id: string) => {
+    setExpandedId(expandedId === id ? null : id)
   }
 
   return (
@@ -308,54 +316,90 @@ function ImportedTemplates() {
             </p>
           </div>
         ) : (
-          templates.map((tpl) => (
-            <div
-              key={tpl.id}
-              className="group flex items-start gap-3 px-3 py-2.5 rounded-lg hover:bg-surface-800/50 transition-colors"
-            >
-              <Package size={16} className="shrink-0 mt-0.5 text-primary-400/60" />
-              <div className="flex-1 min-w-0">
-                <p className="text-sm text-surface-200">{tpl.name}</p>
-                <div className="flex items-center gap-2 mt-1 flex-wrap">
-                  <span className="text-[11px] text-surface-500">
-                    {tpl.node_count} nodes · {tpl.chunks} chunks
-                  </span>
-                  {tpl.categories?.slice(0, 3).map((cat) => (
-                    <span
-                      key={cat}
-                      className="text-[10px] px-1.5 py-0.5 rounded bg-surface-800 text-surface-400"
-                    >
-                      {cat}
-                    </span>
-                  ))}
+          templates.map((tpl) => {
+            const isExpanded = expandedId === tpl.id
+            return (
+              <div
+                key={tpl.id}
+                className="rounded-lg hover:bg-surface-800/50 transition-colors"
+              >
+                <div className="group flex items-start gap-3 px-3 py-2.5">
+                  {/* Expand toggle */}
+                  <button
+                    onClick={() => toggleExpand(tpl.id)}
+                    className="shrink-0 mt-0.5 text-surface-500 hover:text-surface-300 transition-colors"
+                    title="Preview learned knowledge"
+                  >
+                    {isExpanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+                  </button>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm text-surface-200">{tpl.name}</p>
+                    <div className="flex items-center gap-2 mt-1 flex-wrap">
+                      <span className="text-[11px] text-surface-500">
+                        {tpl.node_count} nodes · {tpl.chunks} chunks
+                      </span>
+                      {tpl.categories?.slice(0, 3).map((cat) => (
+                        <span
+                          key={cat}
+                          className="text-[10px] px-1.5 py-0.5 rounded bg-surface-800 text-surface-400"
+                        >
+                          {cat}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-1 shrink-0">
+                    {confirmDeleteId === tpl.id ? (
+                      <>
+                        <button
+                          onClick={() => handleDelete(tpl.id)}
+                          className="p-1.5 text-red-400 hover:text-red-300"
+                        >
+                          <Check size={14} />
+                        </button>
+                        <button
+                          onClick={() => setConfirmDeleteId(null)}
+                          className="p-1.5 text-surface-500 hover:text-surface-300"
+                        >
+                          <X size={14} />
+                        </button>
+                      </>
+                    ) : (
+                      <>
+                        <button
+                          onClick={() => toggleExpand(tpl.id)}
+                          className="p-1.5 opacity-0 group-hover:opacity-100 hover:text-primary-400 transition-all"
+                          title="Preview learned knowledge"
+                        >
+                          <BookOpen size={14} />
+                        </button>
+                        <button
+                          onClick={() => setConfirmDeleteId(tpl.id)}
+                          className="p-1.5 opacity-0 group-hover:opacity-100 hover:text-red-400 transition-all"
+                          title="Remove template"
+                        >
+                          <Trash2 size={14} />
+                        </button>
+                      </>
+                    )}
+                  </div>
                 </div>
+
+                {/* Expanded: distilled knowledge preview */}
+                {isExpanded && tpl.distilled_text && (
+                  <div className="mx-3 mb-3 ml-10 rounded-lg bg-surface-800/60 border border-surface-700/50 overflow-hidden">
+                    <div className="flex items-center gap-1.5 px-3 py-1.5 border-b border-surface-700/50 bg-surface-800/40">
+                      <BookOpen size={12} className="text-primary-400/70" />
+                      <span className="text-[11px] font-medium text-surface-400">Learned Knowledge</span>
+                    </div>
+                    <pre className="px-3 py-2.5 text-xs text-surface-300 whitespace-pre-wrap font-mono leading-relaxed max-h-64 overflow-y-auto scrollbar-thin">
+                      {tpl.distilled_text}
+                    </pre>
+                  </div>
+                )}
               </div>
-              {confirmDeleteId === tpl.id ? (
-                <div className="flex items-center gap-1 shrink-0">
-                  <button
-                    onClick={() => handleDelete(tpl.id)}
-                    className="p-1.5 text-red-400 hover:text-red-300"
-                  >
-                    <Check size={14} />
-                  </button>
-                  <button
-                    onClick={() => setConfirmDeleteId(null)}
-                    className="p-1.5 text-surface-500 hover:text-surface-300"
-                  >
-                    <X size={14} />
-                  </button>
-                </div>
-              ) : (
-                <button
-                  onClick={() => setConfirmDeleteId(tpl.id)}
-                  className="shrink-0 p-1.5 opacity-0 group-hover:opacity-100 hover:text-red-400 transition-all"
-                  title="Remove template"
-                >
-                  <Trash2 size={14} />
-                </button>
-              )}
-            </div>
-          ))
+            )
+          })
         )}
       </div>
     </div>

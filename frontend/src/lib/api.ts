@@ -271,6 +271,7 @@ export interface ImportedTemplate {
   node_count: number
   total_views: number
   chunks: number
+  distilled_text: string
   created_at: string | null
 }
 

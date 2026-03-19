@@ -238,6 +238,7 @@ async def list_imported_templates(
             "node_count": t.node_count,
             "total_views": t.total_views,
             "chunks": len(t.chroma_doc_ids or []),
+            "distilled_text": t.distilled_text,
             "created_at": t.created_at.isoformat() if t.created_at else None,
         }
         for t in templates
