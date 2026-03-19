@@ -19,8 +19,10 @@ from app.rag.chroma_client import search as rag_search
 from app.db.models import Conversation, Message
 from app.db.repositories import (
     ConversationRepository,
+    KnowledgeNoteRepository,
     MessageRepository,
     WorkflowRepository,
+    WorkflowVersionRepository,
 )
 from app.workflow.editor import WorkflowEditor
 from app.workflow.generator import WorkflowGenerator
@@ -170,7 +172,15 @@ class ConversationEngine:
         intent = await classify_intent(user_message, has_workflow, provider, model)
         logger.info("Intent classified", intent=intent, conversation_id=str(conv_id))
 
-        # 4. Dispatch to handler
+        # 4. Auto-redirect CREATE to EDIT when there's already an active workflow
+        if intent == "CREATE_WORKFLOW" and has_workflow:
+            intent = "EDIT_WORKFLOW"
+            logger.info(
+                "Redirected CREATE to EDIT (active workflow in context)",
+                workflow_id=workflow_id,
+            )
+
+        # 5. Dispatch to handler
         if intent == "CREATE_WORKFLOW":
             result = await self._handle_create(
                 session, conversation, user_message,
@@ -191,10 +201,20 @@ class ConversationEngine:
         result["intent"] = intent
         result["conversation_id"] = str(conv_id)
 
-        # 5. Save assistant response
+        # 6. Save assistant response with workflow metadata
+        msg_metadata: dict[str, Any] = {
+            "intent": intent,
+            "has_workflow": result.get("workflow") is not None,
+        }
+        if result.get("workflow"):
+            wf = result["workflow"]
+            msg_metadata["n8n_workflow_id"] = wf.get("n8n_workflow_id")
+            msg_metadata["n8n_url"] = wf.get("n8n_editor_url")
+            msg_metadata["workflow_json"] = wf.get("workflow_json")
+
         await MessageRepository.create(
             session, conv_id, "assistant", result["message"],
-            metadata={"intent": intent, "has_workflow": result.get("workflow") is not None},
+            metadata=msg_metadata,
         )
 
         return result
@@ -209,6 +229,18 @@ class ConversationEngine:
             logger.warning("RAG search failed, continuing without context", error=str(e))
             return ""
 
+    async def _get_knowledge_context(self, session: AsyncSession) -> str:
+        """Load active knowledge notes and format as prompt context."""
+        try:
+            notes = await KnowledgeNoteRepository.list_all(session, active_only=True)
+            if not notes:
+                return ""
+            notes_text = "\n".join(f"- {n.content}" for n in notes)
+            return f"\n\n## User Knowledge Notes (MUST follow these instructions):\n{notes_text}"
+        except Exception as e:
+            logger.warning("Failed to load knowledge notes", error=str(e))
+            return ""
+
     async def _handle_create(
         self,
         session: AsyncSession,
@@ -221,8 +253,10 @@ class ConversationEngine:
     ) -> dict[str, Any]:
         """Generate a new workflow."""
         rag_context = self._get_rag_context(user_message)
+        knowledge_context = await self._get_knowledge_context(session)
+        full_context = rag_context + knowledge_context
         workflow_json = await self.generator.generate(
-            user_message, rag_context=rag_context, provider=provider, model=model,
+            user_message, rag_context=full_context, provider=provider, model=model,
         )
 
         # Deploy
@@ -248,6 +282,19 @@ class ConversationEngine:
             n8n_workflow_id=n8n_id,
             status=status,
         )
+
+        # Save version snapshot
+        if n8n_id:
+            try:
+                await WorkflowVersionRepository.save_version(
+                    session,
+                    workflow_id=n8n_id,
+                    name=wf_name,
+                    workflow_json=workflow_json,
+                    change_summary="Initial creation",
+                )
+            except Exception as e:
+                logger.warning("Failed to save workflow version", error=str(e))
 
         # Build message
         num_nodes = len(workflow_json.get("nodes", []))
@@ -312,8 +359,10 @@ class ConversationEngine:
                 ),
             }
 
+        knowledge_context = await self._get_knowledge_context(session)
         edited = await self.editor.edit(
-            current_workflow, user_message, provider=provider, model=model,
+            current_workflow, user_message, rag_context=knowledge_context,
+            provider=provider, model=model,
         )
 
         n8n_id = workflow_id
@@ -340,6 +389,19 @@ class ConversationEngine:
             n8n_workflow_id=n8n_id,
             status="deployed" if n8n_id else "draft",
         )
+
+        # Save version snapshot
+        if n8n_id:
+            try:
+                await WorkflowVersionRepository.save_version(
+                    session,
+                    workflow_id=n8n_id,
+                    name=wf_name,
+                    workflow_json=edited,
+                    change_summary=f"Edit: {user_message[:100]}",
+                )
+            except Exception as e:
+                logger.warning("Failed to save workflow version", error=str(e))
 
         num_nodes = len(edited.get("nodes", []))
         parts = [
@@ -371,7 +433,8 @@ class ConversationEngine:
     ) -> dict[str, Any]:
         """Handle general chat with conversation history."""
         rag_context = self._get_rag_context(user_message)
-        system_prompt = build_chat_prompt(rag_context=rag_context)
+        knowledge_context = await self._get_knowledge_context(session)
+        system_prompt = build_chat_prompt(rag_context=rag_context + knowledge_context)
 
         # Load history and build context window
         history = await MessageRepository.get_history(session, conversation.id)

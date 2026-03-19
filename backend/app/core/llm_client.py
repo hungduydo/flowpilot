@@ -21,6 +21,7 @@ from anthropic import AsyncAnthropic
 from openai import AsyncOpenAI
 
 from app.config import settings
+from app.core.retry import llm_retry
 from app.workflow.schema import WORKFLOW_JSON_SCHEMA
 
 logger = structlog.get_logger()
@@ -128,6 +129,7 @@ def _extract_system(messages: list[dict]) -> tuple[str, list[dict]]:
 #  CHAT COMPLETION
 # ═══════════════════════════════════════════════════════════════════
 
+@llm_retry
 async def _chat_openai(
     messages: list[dict], system_text: str,
     model: str, temperature: float, max_tokens: int,
@@ -150,6 +152,7 @@ async def _chat_openai(
     return content
 
 
+@llm_retry
 async def _chat_anthropic(
     messages: list[dict], system_text: str,
     model: str, temperature: float, max_tokens: int,
@@ -169,6 +172,7 @@ async def _chat_anthropic(
     return content
 
 
+@llm_retry
 async def _chat_ollama(
     messages: list[dict], system_text: str,
     model: str, temperature: float, max_tokens: int,
@@ -323,6 +327,7 @@ async def chat_completion_stream(
 #  STRUCTURED OUTPUT (Workflow JSON generation)
 # ═══════════════════════════════════════════════════════════════════
 
+@llm_retry
 async def _structured_openai(
     messages: list[dict], system_text: str, model: str, temperature: float,
 ) -> dict[str, Any]:
@@ -350,6 +355,7 @@ async def _structured_openai(
     return json.loads(content)
 
 
+@llm_retry
 async def _structured_anthropic(
     messages: list[dict], system_text: str, model: str, temperature: float,
 ) -> dict[str, Any]:
@@ -396,20 +402,37 @@ JSON format:
 
 Rules:
 - Every workflow needs exactly 1 trigger node
-- Node types: webhook, scheduleTrigger, httpRequest, if, set, code, slack, emailSend, googleSheets, etc.
 - Use prefix "n8n-nodes-base." for all types
 - Position: start at [250,300], each next node +250 on x-axis
-- Node names must be unique
+- Node names must be unique, descriptive
 - Generate valid UUIDs for node ids
-- scheduleTrigger parameters MUST use: {"rule":{"interval":[{"field":"minutes","minutesInterval":N}]}} (NOT cron strings)
+- scheduleTrigger: {"rule":{"interval":[{"field":"minutes","minutesInterval":N}]}} (NOT cron strings)
 - For hours: {"rule":{"interval":[{"field":"hours","hoursInterval":N}]}}
-- If node conditions: {"conditions":{"options":{"caseSensitive":true,"leftValue":""},"conditions":[{"leftValue":"={{ $json.field }}","rightValue":"value","operator":{"type":"string","operation":"equals"}}],"combinator":"and"}}
-- Slack: use resource "message", operation "send"
+- If node: {"conditions":{"options":{"caseSensitive":true,"leftValue":""},"conditions":[{"leftValue":"={{ $json.field }}","rightValue":"value","operator":{"type":"string","operation":"equals"}}],"combinator":"and"}}
+- For If node connections: main[0]=true branch, main[1]=false branch
+
+Node resource/operation (MUST include for these nodes):
+- slack: resource="message", operation="send", params: channel, text
+- googleSheets: resource="sheet", operation="appendOrUpdate", params: documentId, sheetName
+- gmail: resource="message", operation="send", params: sendTo, subject, message
+- telegram: resource="message", operation="sendMessage", params: chatId, text
+- googleDrive: resource="file", operation="upload"
+- github: resource="issue", operation="getAll", params: owner, repository
+- discord: resource="message", operation="send", params: channelId, content
+- postgres/mySql: operation="executeQuery", params: query
+- facebookGraphApi: resource="post", operation="create"
+- notion: resource="page", operation="create"
+- httpRequest: params: url, method (GET/POST/PUT/DELETE)
+- webhook: params: httpMethod, path
+- emailSend: params: fromEmail, toEmail, subject, text
+- set: params: assignments (object with assignments array)
+- code: params: jsCode (JavaScript code string)
 
 Example - "Send Slack on webhook":
-{"name":"Webhook to Slack","nodes":[{"id":"a1b2c3d4-e5f6-7890-abcd-ef1234567890","name":"Webhook","type":"n8n-nodes-base.webhook","typeVersion":2.0,"position":[250,300],"parameters":{"httpMethod":"POST","path":"hook"}},{"id":"b2c3d4e5-f6a7-8901-bcde-f12345678901","name":"Send Slack","type":"n8n-nodes-base.slack","typeVersion":2.2,"position":[500,300],"parameters":{"channel":"#general","text":"New webhook received"}}],"connections":{"Webhook":{"main":[[{"node":"Send Slack","type":"main","index":0}]]}},"settings":{"executionOrder":"v1"}}"""
+{"name":"Webhook to Slack","nodes":[{"id":"a1b2c3d4-e5f6-7890-abcd-ef1234567890","name":"Webhook","type":"n8n-nodes-base.webhook","typeVersion":2.0,"position":[250,300],"parameters":{"httpMethod":"POST","path":"hook"}},{"id":"b2c3d4e5-f6a7-8901-bcde-f12345678901","name":"Send Slack","type":"n8n-nodes-base.slack","typeVersion":2.2,"position":[500,300],"parameters":{"resource":"message","operation":"send","channel":"#general","text":"New webhook received"}}],"connections":{"Webhook":{"main":[[{"node":"Send Slack","type":"main","index":0}]]}},"settings":{"executionOrder":"v1"}}"""
 
 
+@llm_retry
 async def _structured_ollama(
     messages: list[dict], system_text: str, model: str, temperature: float,
 ) -> dict[str, Any]:

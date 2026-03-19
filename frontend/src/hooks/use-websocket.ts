@@ -2,16 +2,61 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useChatStore } from '@/stores/chat-store'
+import { useToastStore } from '@/stores/toast-store'
 import type { Message } from '@/lib/types'
 
 const WS_URL = process.env.NEXT_PUBLIC_WS_URL || 'ws://localhost:8000'
+
+const MAX_RECONNECT_ATTEMPTS = 10
+const INITIAL_BACKOFF = 1000
+const MAX_BACKOFF = 30000
 
 export function useWebSocket() {
   const wsRef = useRef<WebSocket | null>(null)
   const [connected, setConnected] = useState(false)
   const store = useChatStore()
+  const toast = useToastStore()
+
+  const reconnectAttempts = useRef(0)
+  const reconnectTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const lastConversationId = useRef<string | undefined>(undefined)
+  const intentionalClose = useRef(false)
+
+  const clearReconnectTimer = () => {
+    if (reconnectTimer.current) {
+      clearTimeout(reconnectTimer.current)
+      reconnectTimer.current = null
+    }
+  }
+
+  const getBackoffDelay = () => {
+    const delay = Math.min(
+      INITIAL_BACKOFF * Math.pow(2, reconnectAttempts.current),
+      MAX_BACKOFF,
+    )
+    return delay
+  }
+
+  const scheduleReconnect = useCallback(() => {
+    if (intentionalClose.current) return
+    if (reconnectAttempts.current >= MAX_RECONNECT_ATTEMPTS) {
+      toast.addToast('error', 'WebSocket connection lost. Please refresh the page.')
+      return
+    }
+
+    const delay = getBackoffDelay()
+    reconnectAttempts.current += 1
+
+    reconnectTimer.current = setTimeout(() => {
+      connect(lastConversationId.current)
+    }, delay)
+  }, [])
 
   const connect = useCallback((conversationId?: string) => {
+    intentionalClose.current = false
+    lastConversationId.current = conversationId
+    clearReconnectTimer()
+
     if (wsRef.current?.readyState === WebSocket.OPEN) {
       wsRef.current.close()
     }
@@ -25,7 +70,10 @@ export function useWebSocket() {
 
     ws.onopen = () => {
       setConnected(true)
-      console.log('WebSocket connected')
+      if (reconnectAttempts.current > 0) {
+        toast.addToast('success', 'WebSocket reconnected')
+      }
+      reconnectAttempts.current = 0
     }
 
     ws.onmessage = (event) => {
@@ -83,25 +131,27 @@ export function useWebSocket() {
             break
         }
       } catch {
-        console.error('Failed to parse WS message:', event.data)
+        toast.addToast('error', 'Failed to parse WebSocket message')
       }
     }
 
     ws.onclose = () => {
       setConnected(false)
-      console.log('WebSocket disconnected')
+      if (!intentionalClose.current) {
+        toast.addToast('warning', 'WebSocket disconnected. Reconnecting...')
+        scheduleReconnect()
+      }
     }
 
-    ws.onerror = (error) => {
-      console.error('WebSocket error:', error)
+    ws.onerror = () => {
       setConnected(false)
     }
-  }, [])
+  }, [scheduleReconnect])
 
   const sendMessage = useCallback(
     (content: string) => {
       if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
-        console.error('WebSocket not connected')
+        toast.addToast('error', 'WebSocket not connected. Please wait for reconnection.')
         return
       }
 
@@ -136,15 +186,19 @@ export function useWebSocket() {
   )
 
   const disconnect = useCallback(() => {
+    intentionalClose.current = true
+    clearReconnectTimer()
     wsRef.current?.close()
     wsRef.current = null
   }, [])
 
   useEffect(() => {
     return () => {
-      disconnect()
+      intentionalClose.current = true
+      clearReconnectTimer()
+      wsRef.current?.close()
     }
-  }, [disconnect])
+  }, [])
 
   return {
     connected,

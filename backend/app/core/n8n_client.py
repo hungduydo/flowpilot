@@ -14,6 +14,7 @@ import httpx
 import structlog
 
 from app.config import settings
+from app.core.retry import n8n_retry
 
 logger = structlog.get_logger()
 
@@ -67,6 +68,7 @@ class N8nClient:
 
     # ─── Workflow CRUD ───
 
+    @n8n_retry
     async def create_workflow(self, workflow_json: dict[str, Any]) -> dict[str, Any]:
         """
         Create a new workflow on n8n.
@@ -102,6 +104,7 @@ class N8nClient:
             )
             return result
 
+    @n8n_retry
     async def get_workflow(self, workflow_id: str) -> dict[str, Any]:
         """
         Get a workflow by ID.
@@ -113,6 +116,7 @@ class N8nClient:
             response = await client.get(f"/workflows/{workflow_id}")
             return await self._handle_response(response)
 
+    @n8n_retry
     async def update_workflow(
         self, workflow_id: str, workflow_json: dict[str, Any]
     ) -> dict[str, Any]:
@@ -145,6 +149,7 @@ class N8nClient:
             logger.info("Workflow deleted from n8n", workflow_id=workflow_id)
             return result
 
+    @n8n_retry
     async def list_workflows(
         self,
         active: bool | None = None,
@@ -176,6 +181,7 @@ class N8nClient:
 
     # ─── Workflow Lifecycle ───
 
+    @n8n_retry
     async def activate_workflow(self, workflow_id: str) -> dict[str, Any]:
         """
         Activate (publish) a workflow.
@@ -188,6 +194,7 @@ class N8nClient:
             logger.info("Workflow activated on n8n", workflow_id=workflow_id)
             return result
 
+    @n8n_retry
     async def deactivate_workflow(self, workflow_id: str) -> dict[str, Any]:
         """
         Deactivate a workflow.

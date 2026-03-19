@@ -7,12 +7,15 @@ Provides both local workflow management and n8n server proxy.
 from typing import Any, Optional
 
 import structlog
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
 from app.core.llm_client import check_ollama_status, pull_ollama_model
 from app.core.n8n_client import N8nClientError, n8n_client
+from app.db.session import get_db
+from app.db.repositories import WorkflowVersionRepository
 from app.workflow.node_registry import NODE_CATALOG, get_node_catalog_summary, search_nodes
 from app.workflow.validator import WorkflowValidator
 
@@ -176,7 +179,10 @@ def _has_archived_tag(tags: list) -> bool:
 
 
 @router.post("/n8n/workflows/{workflow_id}/archive")
-async def archive_n8n_workflow(workflow_id: str):
+async def archive_n8n_workflow(
+    workflow_id: str,
+    session: AsyncSession = Depends(get_db),
+):
     """Archive a workflow on n8n (deactivate + add 'archived' tag)."""
     try:
         workflow = await n8n_client.get_workflow(workflow_id)
@@ -199,6 +205,18 @@ async def archive_n8n_workflow(workflow_id: str):
             response = await client.put(f"/workflows/{workflow_id}/tags", json=tag_ids)
             await n8n_client._handle_response(response)
 
+        # Save version snapshot
+        try:
+            await WorkflowVersionRepository.save_version(
+                session,
+                workflow_id=workflow_id,
+                name=workflow.get("name", "Workflow"),
+                workflow_json=workflow,
+                change_summary="Archived",
+            )
+        except Exception as e:
+            logger.warning("Failed to save version on archive", error=str(e))
+
         logger.info("Workflow archived on n8n", workflow_id=workflow_id)
         return {"id": workflow_id, "isArchived": True, "status": "archived"}
     except N8nClientError as e:
@@ -206,7 +224,10 @@ async def archive_n8n_workflow(workflow_id: str):
 
 
 @router.post("/n8n/workflows/{workflow_id}/unarchive")
-async def unarchive_n8n_workflow(workflow_id: str):
+async def unarchive_n8n_workflow(
+    workflow_id: str,
+    session: AsyncSession = Depends(get_db),
+):
     """Unarchive a workflow on n8n (remove 'archived' tag)."""
     try:
         workflow = await n8n_client.get_workflow(workflow_id)
@@ -224,8 +245,107 @@ async def unarchive_n8n_workflow(workflow_id: str):
             response = await client.put(f"/workflows/{workflow_id}/tags", json=tag_ids)
             await n8n_client._handle_response(response)
 
+        # Save version snapshot
+        try:
+            await WorkflowVersionRepository.save_version(
+                session,
+                workflow_id=workflow_id,
+                name=workflow.get("name", "Workflow"),
+                workflow_json=workflow,
+                change_summary="Unarchived",
+            )
+        except Exception as e:
+            logger.warning("Failed to save version on unarchive", error=str(e))
+
         logger.info("Workflow unarchived on n8n", workflow_id=workflow_id)
         return {"id": workflow_id, "isArchived": False, "status": "unarchived"}
+    except N8nClientError as e:
+        raise HTTPException(status_code=e.status_code, detail=e.detail)
+
+
+# ─── Workflow Version History ───
+
+
+class VersionResponse(BaseModel):
+    id: str
+    workflow_id: str
+    version: int
+    name: str
+    workflow_json: dict[str, Any]
+    change_summary: str | None
+    created_at: str
+    created_by: str
+
+
+@router.get("/n8n/workflows/{workflow_id}/versions")
+async def list_workflow_versions(
+    workflow_id: str,
+    session: AsyncSession = Depends(get_db),
+):
+    """List all version history for a workflow."""
+    versions = await WorkflowVersionRepository.list_versions(session, workflow_id)
+    return [
+        VersionResponse(
+            id=str(v.id),
+            workflow_id=v.workflow_id,
+            version=v.version,
+            name=v.name,
+            workflow_json=v.workflow_json,
+            change_summary=v.change_summary,
+            created_at=v.created_at.isoformat(),
+            created_by=v.created_by,
+        )
+        for v in versions
+    ]
+
+
+@router.get("/n8n/workflows/{workflow_id}/versions/{version_id}")
+async def get_workflow_version(
+    workflow_id: str,
+    version_id: str,
+    session: AsyncSession = Depends(get_db),
+):
+    """Get a specific workflow version."""
+    version = await WorkflowVersionRepository.get_version(session, version_id)
+    if not version or version.workflow_id != workflow_id:
+        raise HTTPException(status_code=404, detail="Version not found")
+    return VersionResponse(
+        id=str(version.id),
+        workflow_id=version.workflow_id,
+        version=version.version,
+        name=version.name,
+        workflow_json=version.workflow_json,
+        change_summary=version.change_summary,
+        created_at=version.created_at.isoformat(),
+        created_by=version.created_by,
+    )
+
+
+@router.post("/n8n/workflows/{workflow_id}/versions/{version_id}/rollback")
+async def rollback_workflow_version(
+    workflow_id: str,
+    version_id: str,
+    session: AsyncSession = Depends(get_db),
+):
+    """Rollback a workflow to a specific version."""
+    version = await WorkflowVersionRepository.get_version(session, version_id)
+    if not version or version.workflow_id != workflow_id:
+        raise HTTPException(status_code=404, detail="Version not found")
+
+    try:
+        # Push the old version JSON to n8n
+        await n8n_client.update_workflow(workflow_id, version.workflow_json)
+
+        # Save the rollback as a new version
+        await WorkflowVersionRepository.save_version(
+            session,
+            workflow_id=workflow_id,
+            name=version.name,
+            workflow_json=version.workflow_json,
+            change_summary=f"Rollback to version {version.version}",
+        )
+
+        return {"message": f"Rolled back to version {version.version}"}
     except N8nClientError as e:
         raise HTTPException(status_code=e.status_code, detail=e.detail)
 

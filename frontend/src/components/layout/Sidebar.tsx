@@ -2,8 +2,12 @@
 
 import { useState, useEffect } from 'react'
 import { useChat } from '@/hooks/use-chat'
+import { useToastStore } from '@/stores/toast-store'
 import { getN8nWorkflows, archiveN8nWorkflow, unarchiveN8nWorkflow } from '@/lib/api'
 import { formatTimestamp, truncate } from '@/lib/utils'
+import { SkeletonConversationList, SkeletonWorkflowList } from '@/components/ui/Skeleton'
+import { VersionHistory } from '@/components/workflow/VersionHistory'
+import { KnowledgePanel } from '@/components/knowledge/KnowledgePanel'
 import {
   Plus,
   MessageSquare,
@@ -14,6 +18,8 @@ import {
   ExternalLink,
   Archive,
   ArchiveRestore,
+  Clock,
+  BookOpen,
 } from 'lucide-react'
 
 const N8N_URL = process.env.NEXT_PUBLIC_N8N_URL || 'http://localhost:5678'
@@ -42,16 +48,25 @@ export function Sidebar() {
     removeConversation,
   } = useChat()
 
+  const toast = useToastStore()
   const [n8nWorkflows, setN8nWorkflows] = useState<N8nWf[]>([])
-  const [activeTab, setActiveTab] = useState<'chats' | 'workflows'>('chats')
+  const [activeTab, setActiveTab] = useState<'chats' | 'workflows' | 'knowledge'>('chats')
   const [showArchived, setShowArchived] = useState(false)
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
   const [confirmArchiveId, setConfirmArchiveId] = useState<string | null>(null)
+  const [loadingWorkflows, setLoadingWorkflows] = useState(false)
+  const [loadingConversations, setLoadingConversations] = useState(false)
+  const [historyWf, setHistoryWf] = useState<N8nWf | null>(null)
 
   const refreshWorkflows = () => {
+    setLoadingWorkflows(true)
     getN8nWorkflows()
       .then((data) => setN8nWorkflows(data.data || []))
-      .catch(() => setN8nWorkflows([]))
+      .catch(() => {
+        setN8nWorkflows([])
+        toast.addToast('error', 'Failed to load n8n workflows')
+      })
+      .finally(() => setLoadingWorkflows(false))
   }
 
   // Load n8n workflows
@@ -61,12 +76,24 @@ export function Sidebar() {
     }
   }, [activeTab])
 
+  // Track conversation loading
+  useEffect(() => {
+    if (activeTab === 'chats' && conversations.length === 0) {
+      setLoadingConversations(true)
+      const timer = setTimeout(() => setLoadingConversations(false), 1500)
+      return () => clearTimeout(timer)
+    } else {
+      setLoadingConversations(false)
+    }
+  }, [activeTab, conversations.length])
+
   const handleArchive = async (wfId: string) => {
     try {
       await archiveN8nWorkflow(wfId)
       refreshWorkflows()
+      toast.addToast('success', 'Workflow archived')
     } catch (err) {
-      console.error('Failed to archive workflow:', err)
+      toast.addToast('error', 'Failed to archive workflow')
     }
     setConfirmArchiveId(null)
   }
@@ -75,8 +102,9 @@ export function Sidebar() {
     try {
       await unarchiveN8nWorkflow(wfId)
       refreshWorkflows()
+      toast.addToast('success', 'Workflow unarchived')
     } catch (err) {
-      console.error('Failed to unarchive workflow:', err)
+      toast.addToast('error', 'Failed to unarchive workflow')
     }
   }
 
@@ -115,15 +143,29 @@ export function Sidebar() {
               : 'text-surface-500 hover:text-surface-300'
           }`}
         >
-          n8n Workflows
+          n8n
+        </button>
+        <button
+          onClick={() => setActiveTab('knowledge')}
+          className={`flex-1 py-2 text-xs font-medium text-center transition-colors ${
+            activeTab === 'knowledge'
+              ? 'text-primary-400 border-b-2 border-primary-400'
+              : 'text-surface-500 hover:text-surface-300'
+          }`}
+        >
+          Knowledge
         </button>
       </div>
 
       {/* Content */}
       <div className="flex-1 overflow-y-auto scrollbar-thin">
-        {activeTab === 'chats' ? (
+        {activeTab === 'knowledge' ? (
+          <KnowledgePanel />
+        ) : activeTab === 'chats' ? (
           <div className="p-2 space-y-0.5">
-            {conversations.length === 0 ? (
+            {loadingConversations ? (
+              <SkeletonConversationList />
+            ) : conversations.length === 0 ? (
               <p className="text-surface-500 text-xs text-center py-8">
                 No conversations yet
               </p>
@@ -189,6 +231,9 @@ export function Sidebar() {
           </div>
         ) : (
           <div className="p-2 space-y-0.5">
+            {loadingWorkflows ? (
+              <SkeletonWorkflowList />
+            ) : <>
             {/* Filter toggle */}
             {n8nWorkflows.length > 0 && (
               <button
@@ -218,79 +263,98 @@ export function Sidebar() {
                 return (
                 <div
                   key={wf.id}
-                  className="group flex items-center gap-2 px-3 py-2.5 rounded-lg hover:bg-surface-800/50 text-surface-400 transition-colors"
+                  className="group px-3 py-2 rounded-lg hover:bg-surface-800/50 text-surface-400 transition-colors"
                 >
-                  <Workflow size={14} className="shrink-0" />
+                  {/* Title — full width */}
                   <a
                     href={`${N8N_URL}/workflow/${wf.id}`}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="flex-1 min-w-0"
+                    className="flex items-center gap-2 min-w-0"
                   >
-                    <div className="flex items-center gap-1.5">
-                      <p className="text-sm truncate">{truncate(wf.name, 18)}</p>
-                      <span className={`shrink-0 text-[10px] font-medium px-1.5 py-0.5 rounded-full ${status.color}`}>
-                        {status.label}
-                      </span>
-                    </div>
-                    <p className="text-xs text-surface-500">
-                      {formatTimestamp(wf.updatedAt)}
-                    </p>
+                    <Workflow size={14} className="shrink-0" />
+                    <p className="text-sm truncate flex-1">{wf.name}</p>
                   </a>
-                  {confirmArchiveId === wf.id ? (
-                    <div className="flex items-center gap-0.5">
-                      <button
-                        onClick={() => handleArchive(wf.id)}
-                        className="p-1 text-amber-400 hover:text-amber-300 transition-colors"
-                        title="Confirm archive"
-                      >
-                        <Check size={13} />
-                      </button>
-                      <button
-                        onClick={() => setConfirmArchiveId(null)}
-                        className="p-1 text-surface-500 hover:text-surface-300 transition-colors"
-                        title="Cancel"
-                      >
-                        <X size={13} />
-                      </button>
-                    </div>
-                  ) : (
-                    <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-all">
-                      {wf.isArchived ? (
-                        <button
-                          onClick={() => handleUnarchive(wf.id)}
-                          className="p-1 hover:text-green-400 transition-colors"
-                          title="Unarchive workflow"
-                        >
-                          <ArchiveRestore size={13} />
-                        </button>
+                  {/* Status + time + actions — same row */}
+                  <div className="flex items-center gap-1.5 mt-1 ml-[22px]">
+                    <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded-full ${status.color}`}>
+                      {status.label}
+                    </span>
+                    <span className="text-[11px] text-surface-500">{formatTimestamp(wf.updatedAt)}</span>
+                    <div className="ml-auto flex items-center gap-0.5">
+                      {confirmArchiveId === wf.id ? (
+                        <>
+                          <button
+                            onClick={() => handleArchive(wf.id)}
+                            className="p-1 text-amber-400 hover:text-amber-300 transition-colors"
+                            title="Confirm archive"
+                          >
+                            <Check size={12} />
+                          </button>
+                          <button
+                            onClick={() => setConfirmArchiveId(null)}
+                            className="p-1 text-surface-500 hover:text-surface-300 transition-colors"
+                            title="Cancel"
+                          >
+                            <X size={12} />
+                          </button>
+                        </>
                       ) : (
-                        <button
-                          onClick={() => setConfirmArchiveId(wf.id)}
-                          className="p-1 hover:text-amber-400 transition-colors"
-                          title="Archive workflow"
-                        >
-                          <Archive size={13} />
-                        </button>
+                        <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-all">
+                          <button
+                            onClick={() => setHistoryWf(wf)}
+                            className="p-1 hover:text-primary-400 transition-colors"
+                            title="Version history"
+                          >
+                            <Clock size={12} />
+                          </button>
+                          {wf.isArchived ? (
+                            <button
+                              onClick={() => handleUnarchive(wf.id)}
+                              className="p-1 hover:text-green-400 transition-colors"
+                              title="Unarchive workflow"
+                            >
+                              <ArchiveRestore size={12} />
+                            </button>
+                          ) : (
+                            <button
+                              onClick={() => setConfirmArchiveId(wf.id)}
+                              className="p-1 hover:text-amber-400 transition-colors"
+                              title="Archive workflow"
+                            >
+                              <Archive size={12} />
+                            </button>
+                          )}
+                          <a
+                            href={`${N8N_URL}/workflow/${wf.id}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="p-1 hover:text-primary-400 transition-colors"
+                            title="Open in n8n"
+                          >
+                            <ExternalLink size={12} />
+                          </a>
+                        </div>
                       )}
-                      <a
-                        href={`${N8N_URL}/workflow/${wf.id}`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="p-1 hover:text-primary-400 transition-colors"
-                        title="Open in n8n"
-                      >
-                        <ExternalLink size={13} />
-                      </a>
                     </div>
-                  )}
+                  </div>
                 </div>
                 )
               }))
             }
+            </>}
           </div>
         )}
       </div>
+      {/* Version History Panel */}
+      {historyWf && (
+        <VersionHistory
+          workflowId={historyWf.id}
+          workflowName={historyWf.name}
+          onClose={() => setHistoryWf(null)}
+          onRollback={refreshWorkflows}
+        />
+      )}
     </aside>
   )
 }

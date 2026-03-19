@@ -52,6 +52,26 @@ export interface N8nWorkflow {
   nodes?: WorkflowNode[]
 }
 
+export interface WorkflowVersion {
+  id: string
+  workflow_id: string
+  version: number
+  name: string
+  workflow_json: Record<string, unknown>
+  change_summary: string | null
+  created_at: string
+  created_by: string
+}
+
+export interface KnowledgeNote {
+  id: string
+  content: string
+  category: string | null
+  is_active: boolean
+  created_at: string | null
+  updated_at?: string | null
+}
+
 // WebSocket message types
 export type WSMessageType =
   | 'chat_message'

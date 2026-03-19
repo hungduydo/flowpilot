@@ -1,6 +1,12 @@
 import { create } from 'zustand'
 import type { Message, Conversation } from '@/lib/types'
 
+interface ActiveWorkflow {
+  id: string
+  name: string
+  editorUrl?: string | null
+}
+
 interface ChatState {
   // Conversations
   conversations: Conversation[]
@@ -16,6 +22,10 @@ interface ChatState {
   addMessage: (message: Message) => void
   updateLastAssistantMessage: (content: string) => void
   appendToLastAssistantMessage: (token: string) => void
+
+  // Active workflow (sticky per conversation)
+  activeWorkflow: ActiveWorkflow | null
+  setActiveWorkflow: (wf: ActiveWorkflow | null) => void
 
   // UI State
   isLoading: boolean
@@ -74,6 +84,9 @@ export const useChatStore = create<ChatState>((set) => ({
       }
       return { messages: msgs }
     }),
+
+  activeWorkflow: null,
+  setActiveWorkflow: (wf) => set({ activeWorkflow: wf }),
 
   isLoading: false,
   setLoading: (loading) => set({ isLoading: loading }),

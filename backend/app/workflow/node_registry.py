@@ -406,6 +406,91 @@ _register(NodeDefinition(
     keywords=["agent", "ai", "tool", "langchain", "reasoning"],
 ))
 
+# ═══ Social / Marketing ═══
+
+_register(NodeDefinition(
+    type="n8n-nodes-base.facebookGraphApi",
+    display_name="Facebook Graph API",
+    category="Marketing",
+    description="Interact with Facebook Graph API (posts, pages, ads)",
+    type_version=1.0,
+    credential_types=["facebookGraphApi"],
+    required_parameters=["resource", "operation"],
+    keywords=["facebook", "fb", "meta", "post", "page", "social", "graph"],
+))
+
+_register(NodeDefinition(
+    type="n8n-nodes-base.microsoftTeams",
+    display_name="Microsoft Teams",
+    category="Communication",
+    description="Send messages and manage Microsoft Teams channels",
+    type_version=2.0,
+    credential_types=["microsoftTeamsOAuth2Api"],
+    required_parameters=["resource", "operation"],
+    keywords=["teams", "microsoft", "ms teams", "message", "chat"],
+))
+
+# ═══ CRM / Productivity ═══
+
+_register(NodeDefinition(
+    type="n8n-nodes-base.hubspot",
+    display_name="HubSpot",
+    category="CRM",
+    description="Manage contacts, deals, and companies in HubSpot",
+    type_version=2.0,
+    credential_types=["hubspotApi", "hubspotOAuth2Api"],
+    required_parameters=["resource", "operation"],
+    keywords=["hubspot", "crm", "contact", "deal", "company", "marketing"],
+))
+
+_register(NodeDefinition(
+    type="n8n-nodes-base.notion",
+    display_name="Notion",
+    category="Productivity",
+    description="Create, read, update pages and databases in Notion",
+    type_version=2.2,
+    credential_types=["notionApi"],
+    required_parameters=["resource", "operation"],
+    keywords=["notion", "page", "database", "wiki", "notes", "document"],
+))
+
+_register(NodeDefinition(
+    type="n8n-nodes-base.airtable",
+    display_name="Airtable",
+    category="Productivity",
+    description="Create, read, update, delete records in Airtable",
+    type_version=2.1,
+    credential_types=["airtableTokenApi"],
+    required_parameters=["resource", "operation"],
+    keywords=["airtable", "spreadsheet", "database", "record", "table"],
+))
+
+# ═══ Payments ═══
+
+_register(NodeDefinition(
+    type="n8n-nodes-base.stripe",
+    display_name="Stripe",
+    category="Finance",
+    description="Manage payments, customers, and subscriptions in Stripe",
+    type_version=1.0,
+    credential_types=["stripeApi"],
+    required_parameters=["resource", "operation"],
+    keywords=["stripe", "payment", "charge", "customer", "subscription", "invoice"],
+))
+
+# ═══ SMS / Phone ═══
+
+_register(NodeDefinition(
+    type="n8n-nodes-base.twilio",
+    display_name="Twilio",
+    category="Communication",
+    description="Send SMS messages and make phone calls via Twilio",
+    type_version=1.0,
+    credential_types=["twilioApi"],
+    required_parameters=["resource", "operation"],
+    keywords=["twilio", "sms", "text", "phone", "call", "message"],
+))
+
 
 # ─── Registry Lookup Functions ───
 

@@ -73,6 +73,20 @@ A valid n8n workflow has this structure:
 ## Available Node Types
 {node_catalog}
 
+## Resource/Operation Rules (CRITICAL for these node types)
+- Slack: resource="message", operation="send", params: channel, text
+- Google Sheets: resource="sheet", operation="appendOrUpdate", params: documentId, sheetName
+- Gmail: resource="message", operation="send", params: sendTo, subject, message
+- Telegram: resource="message", operation="sendMessage", params: chatId, text
+- Google Drive: resource="file", operation="upload"
+- GitHub: resource="issue", operation="getAll", params: owner, repository
+- Discord: resource="message", operation="send", params: channelId, content
+- PostgreSQL/MySQL: operation="executeQuery", params: query
+- Facebook Graph API: resource="post", operation="create"
+- Notion: resource="page", operation="create"
+- HubSpot: resource="contact", operation="create"
+- Jira: resource="issue", operation="create"
+
 ## Rules
 1. Every workflow MUST have exactly one trigger node (type ending in 'Trigger' or 'webhook')
 2. All node names must be unique within the workflow
@@ -81,6 +95,8 @@ A valid n8n workflow has this structure:
 5. Parameters must match the node type's expected format
 6. For credential-dependent nodes, set credentials to null (user will configure in n8n)
 7. Use descriptive node names that explain what the node does
+8. For If node connections: main[0] = true branch, main[1] = false branch
+9. ALWAYS include resource and operation for nodes that require them
 """
 
 SYSTEM_PROMPT_PLAN = """You are an expert n8n workflow architect. Analyze the user's request and create a detailed plan for the workflow.

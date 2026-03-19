@@ -1,7 +1,35 @@
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
 
+const MAX_RETRIES = 2
+const RETRY_DELAY = 1000
+
+function isNetworkError(err: unknown): boolean {
+  return err instanceof TypeError && /failed to fetch|network/i.test(err.message)
+}
+
+async function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+async function fetchWithRetry(url: string, options?: RequestInit): Promise<Response> {
+  let lastError: unknown
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    try {
+      return await fetch(url, options)
+    } catch (err) {
+      lastError = err
+      if (isNetworkError(err) && attempt < MAX_RETRIES) {
+        await sleep(RETRY_DELAY)
+        continue
+      }
+      throw err
+    }
+  }
+  throw lastError
+}
+
 async function fetchAPI<T>(path: string, options?: RequestInit): Promise<T> {
-  const res = await fetch(`${API_URL}${path}`, {
+  const res = await fetchWithRetry(`${API_URL}${path}`, {
     headers: {
       'Content-Type': 'application/json',
       ...options?.headers,
@@ -26,6 +54,7 @@ async function fetchAPI<T>(path: string, options?: RequestInit): Promise<T> {
 export async function sendChatMessage(
   message: string,
   conversationId?: string,
+  workflowId?: string,
 ) {
   return fetchAPI<{
     message: string
@@ -39,6 +68,7 @@ export async function sendChatMessage(
     body: JSON.stringify({
       message,
       conversation_id: conversationId,
+      workflow_id: workflowId || undefined,
     }),
   })
 }
@@ -140,6 +170,60 @@ export async function archiveN8nWorkflow(workflowId: string) {
 export async function unarchiveN8nWorkflow(workflowId: string) {
   return fetchAPI<Record<string, unknown>>(`/api/v1/n8n/workflows/${workflowId}/unarchive`, {
     method: 'POST',
+  })
+}
+
+// Workflow Versions
+export async function getWorkflowVersions(workflowId: string) {
+  return fetchAPI<Array<{
+    id: string
+    workflow_id: string
+    version: number
+    name: string
+    workflow_json: Record<string, unknown>
+    change_summary: string | null
+    created_at: string
+    created_by: string
+  }>>(`/api/v1/n8n/workflows/${workflowId}/versions`)
+}
+
+export async function rollbackWorkflowVersion(workflowId: string, versionId: string) {
+  return fetchAPI<{ message: string }>(`/api/v1/n8n/workflows/${workflowId}/versions/${versionId}/rollback`, {
+    method: 'POST',
+  })
+}
+
+// Knowledge Notes
+export interface KnowledgeNote {
+  id: string
+  content: string
+  category: string | null
+  is_active: boolean
+  created_at: string | null
+  updated_at?: string | null
+}
+
+export async function getKnowledgeNotes(activeOnly: boolean = true) {
+  return fetchAPI<KnowledgeNote[]>(`/api/v1/knowledge/notes?active_only=${activeOnly}`)
+}
+
+export async function createKnowledgeNote(content: string, category?: string) {
+  return fetchAPI<KnowledgeNote>('/api/v1/knowledge/notes', {
+    method: 'POST',
+    body: JSON.stringify({ content, category: category || null }),
+  })
+}
+
+export async function updateKnowledgeNote(noteId: string, data: { content?: string; category?: string; is_active?: boolean }) {
+  return fetchAPI<KnowledgeNote>(`/api/v1/knowledge/notes/${noteId}`, {
+    method: 'PUT',
+    body: JSON.stringify(data),
+  })
+}
+
+export async function deleteKnowledgeNote(noteId: string) {
+  return fetchAPI<Record<string, never>>(`/api/v1/knowledge/notes/${noteId}`, {
+    method: 'DELETE',
   })
 }
 

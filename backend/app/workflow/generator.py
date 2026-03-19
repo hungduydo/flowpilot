@@ -20,6 +20,7 @@ from app.core.prompt_engine import (
     build_plan_prompt,
     get_few_shot_messages,
 )
+from app.workflow.node_registry import NODE_CATALOG, get_node
 from app.workflow.schema import N8nWorkflow
 from app.workflow.validator import WorkflowValidator
 
@@ -173,82 +174,187 @@ class WorkflowGenerator:
         "credentials", "disabled", "notes", "webhookId",
     }
 
+    # ── Correct resource/operation mappings for nodes that need them ──
+    RESOURCE_OP_DEFAULTS: dict[str, dict[str, str]] = {
+        "n8n-nodes-base.slack": {"resource": "message", "operation": "send"},
+        "n8n-nodes-base.telegram": {"resource": "message", "operation": "sendMessage"},
+        "n8n-nodes-base.googleSheets": {"resource": "sheet", "operation": "appendOrUpdate"},
+        "n8n-nodes-base.googleDrive": {"resource": "file", "operation": "upload"},
+        "n8n-nodes-base.gmail": {"resource": "message", "operation": "send"},
+        "n8n-nodes-base.github": {"resource": "issue", "operation": "getAll"},
+        "n8n-nodes-base.jira": {"resource": "issue", "operation": "create"},
+        "n8n-nodes-base.discord": {"resource": "message", "operation": "send"},
+        "@n8n/n8n-nodes-langchain.openAi": {"resource": "chat", "operation": "message"},
+        "n8n-nodes-base.postgres": {"operation": "executeQuery"},
+        "n8n-nodes-base.mySql": {"operation": "executeQuery"},
+        "n8n-nodes-base.mongoDb": {"operation": "find"},
+        "n8n-nodes-base.facebookGraphApi": {"resource": "post", "operation": "create"},
+        "n8n-nodes-base.microsoftTeams": {"resource": "chatMessage", "operation": "create"},
+        "n8n-nodes-base.hubspot": {"resource": "contact", "operation": "create"},
+        "n8n-nodes-base.notion": {"resource": "page", "operation": "create"},
+        "n8n-nodes-base.airtable": {"resource": "record", "operation": "create"},
+    }
+
+    # ── Common wrong resource/operation LLM outputs → correct values ──
+    RESOURCE_OP_FIXES: dict[str, dict[str, str]] = {
+        # Slack
+        "webclient": "message",
+        "chat": "message",
+        # Operations
+        "sendMessage": "send",
+        "postMessage": "send",
+        "post_message": "send",
+        "send_message": "send",
+        "createMessage": "send",
+    }
+
     def _fix_node_parameters(self, node: dict[str, Any]) -> None:
         """Fix common LLM mistakes in node parameters for specific node types."""
         node_type = node.get("type", "")
         params = node.get("parameters", {})
 
-        # ── Schedule Trigger: fix cron string → proper interval object ──
+        # ── 1. Enforce typeVersion from registry ──
+        node_def = get_node(node_type)
+        if node_def:
+            node["typeVersion"] = node_def.type_version
+
+        # ── 2. Schedule Trigger: fix cron string → proper interval object ──
         if node_type == "n8n-nodes-base.scheduleTrigger":
-            # Try to extract interval from any cron-like field LLM may have set
             cron_source = params.pop("cronExpression", None) or params.pop("cron", None)
             rule = params.get("rule")
 
             if rule is None or (isinstance(rule, dict) and not rule) or rule == {}:
-                # No rule — parse from cron or default
                 if cron_source and isinstance(cron_source, str):
                     interval = self._parse_cron_to_interval(cron_source)
                 else:
                     interval = {"field": "minutes", "minutesInterval": 5}
                 params["rule"] = {"interval": [interval]}
             elif isinstance(rule, str):
-                # LLM generated a cron string like "0 */5 * * *"
                 interval = self._parse_cron_to_interval(rule)
                 params["rule"] = {"interval": [interval]}
             elif isinstance(rule, dict) and "interval" not in rule:
                 params["rule"] = {"interval": [{"field": "minutes", "minutesInterval": 5}]}
 
-        # ── If node: fix conditions format ──
+        # ── 3. If node: fix conditions format ──
         if node_type == "n8n-nodes-base.if":
             conditions = params.get("conditions")
-            if isinstance(conditions, str):
-                # LLM generated a string instead of proper conditions object
+            needs_fix = False
+
+            if isinstance(conditions, (str, list)):
+                needs_fix = True
+            elif isinstance(conditions, dict):
+                # Check if it has the correct nested structure
+                inner = conditions.get("conditions")
+                if inner is None:
+                    needs_fix = True
+                elif isinstance(inner, list) and len(inner) > 0:
+                    # Validate each condition has leftValue + operator
+                    for cond in inner:
+                        if not isinstance(cond, dict) or "leftValue" not in cond:
+                            needs_fix = True
+                            break
+                        # Fix operator if it's a string instead of object
+                        op = cond.get("operator")
+                        if isinstance(op, str):
+                            cond["operator"] = self._parse_operator_string(op)
+            elif conditions is None:
+                needs_fix = True
+
+            if needs_fix:
                 params["conditions"] = {
                     "options": {"caseSensitive": True, "leftValue": ""},
                     "conditions": [
                         {
-                            "leftValue": "={{ $json.statusCode }}",
-                            "rightValue": 200,
-                            "operator": {"type": "number", "operation": "notEquals"},
-                        }
-                    ],
-                    "combinator": "and",
-                }
-            elif isinstance(conditions, list):
-                # LLM generated a list instead of proper object
-                params["conditions"] = {
-                    "options": {"caseSensitive": True, "leftValue": ""},
-                    "conditions": [
-                        {
-                            "leftValue": "={{ $json.statusCode }}",
-                            "rightValue": 200,
-                            "operator": {"type": "number", "operation": "notEquals"},
+                            "leftValue": "={{ $json.value }}",
+                            "rightValue": "",
+                            "operator": {"type": "string", "operation": "notEmpty"},
                         }
                     ],
                     "combinator": "and",
                 }
 
-        # ── HTTP Request: ensure url exists ──
+        # ── 4. HTTP Request: ensure url exists ──
         if node_type == "n8n-nodes-base.httpRequest":
             if "url" not in params:
                 params["url"] = "https://example.com"
-            # Fix httpMethod → method (n8n uses "method" internally but accepts both)
+            # Normalize method field
+            method = params.pop("httpMethod", None) or params.pop("requestMethod", None)
+            if method and "method" not in params:
+                params["method"] = method.upper()
 
-        # ── Webhook: ensure path exists ──
+        # ── 5. Webhook: ensure path + httpMethod ──
         if node_type == "n8n-nodes-base.webhook":
             if "path" not in params:
                 params["path"] = "webhook"
             if "httpMethod" not in params:
                 params["httpMethod"] = "POST"
 
-        # ── Slack: fix resource/operation ──
-        if node_type == "n8n-nodes-base.slack":
-            if params.get("resource") == "webclient":
-                params["resource"] = "message"
-            if params.get("operation") == "sendMessage":
-                params["operation"] = "send"
+        # ── 6. Fix resource/operation for ALL nodes that need them ──
+        defaults = self.RESOURCE_OP_DEFAULTS.get(node_type)
+        if defaults:
+            # Fix known wrong values
+            res = params.get("resource", "")
+            if isinstance(res, str) and res in self.RESOURCE_OP_FIXES:
+                params["resource"] = self.RESOURCE_OP_FIXES[res]
+
+            op = params.get("operation", "")
+            if isinstance(op, str) and op in self.RESOURCE_OP_FIXES:
+                params["operation"] = self.RESOURCE_OP_FIXES[op]
+
+            # Fill missing resource/operation from defaults
+            for key, default_val in defaults.items():
+                if key not in params or not params[key]:
+                    params[key] = default_val
+
+        # ── 7. Code node: ensure jsCode field exists ──
+        if node_type == "n8n-nodes-base.code":
+            if "jsCode" not in params and "pythonCode" not in params:
+                # Check if LLM put code in a different field
+                code = params.pop("code", None) or params.pop("script", None)
+                if code:
+                    params["jsCode"] = code
+                else:
+                    params["jsCode"] = "// Add your code here\nreturn items;"
+
+        # ── 8. Email: ensure required fields ──
+        if node_type == "n8n-nodes-base.emailSend":
+            params.setdefault("fromEmail", "noreply@example.com")
+            params.setdefault("toEmail", "recipient@example.com")
+            params.setdefault("subject", "Notification")
+
+        # ── 9. Set node: ensure assignments format ──
+        if node_type == "n8n-nodes-base.set":
+            assignments = params.get("assignments")
+            if assignments is None or (isinstance(assignments, dict) and not assignments):
+                params["assignments"] = {
+                    "assignments": [
+                        {"id": str(uuid.uuid4()), "name": "key", "value": "value", "type": "string"}
+                    ]
+                }
 
         node["parameters"] = params
+
+    @staticmethod
+    def _parse_operator_string(op_str: str) -> dict[str, str]:
+        """Convert a string operator like '!=' or 'equals' to n8n operator object."""
+        mapping = {
+            "==": {"type": "string", "operation": "equals"},
+            "!=": {"type": "string", "operation": "notEquals"},
+            "equals": {"type": "string", "operation": "equals"},
+            "notEquals": {"type": "string", "operation": "notEquals"},
+            "contains": {"type": "string", "operation": "contains"},
+            "notContains": {"type": "string", "operation": "notContains"},
+            ">": {"type": "number", "operation": "gt"},
+            "<": {"type": "number", "operation": "lt"},
+            ">=": {"type": "number", "operation": "gte"},
+            "<=": {"type": "number", "operation": "lte"},
+            "gt": {"type": "number", "operation": "gt"},
+            "lt": {"type": "number", "operation": "lt"},
+            "exists": {"type": "string", "operation": "exists"},
+            "notEmpty": {"type": "string", "operation": "notEmpty"},
+            "empty": {"type": "string", "operation": "empty"},
+        }
+        return mapping.get(op_str, {"type": "string", "operation": "equals"})
 
     def _parse_cron_to_interval(self, cron: str) -> dict[str, Any]:
         """Parse a cron-like string to n8n interval format."""

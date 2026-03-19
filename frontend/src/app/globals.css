@@ -62,3 +62,9 @@
 .chat-markdown blockquote {
   @apply border-l-2 border-surface-600 pl-3 italic text-surface-400 my-2;
 }
+
+/* Toast progress bar animation */
+@keyframes toast-progress {
+  from { width: 100%; }
+  to { width: 0%; }
+}
