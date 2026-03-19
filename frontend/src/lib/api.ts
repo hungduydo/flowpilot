@@ -316,6 +316,24 @@ export async function deleteImportedTemplate(id: string) {
   })
 }
 
+// Debug
+export interface ContextDebugResult {
+  message: string
+  keywords: string[]
+  rag: { text: string; tokens: number; budget: number }
+  knowledge_notes: { text: string; tokens: number; budget: number }
+  learning_records: { text: string; tokens: number; budget: number }
+  templates: { text: string; tokens: number; budget: number }
+  total_tokens: number
+}
+
+export async function debugContext(message: string) {
+  return fetchAPI<ContextDebugResult>('/api/v1/debug/context', {
+    method: 'POST',
+    body: JSON.stringify({ message }),
+  })
+}
+
 // Health
 export async function getHealth() {
   return fetchAPI<{

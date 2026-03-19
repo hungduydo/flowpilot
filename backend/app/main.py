@@ -7,7 +7,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from app.api.routes import chat, conversations, health, knowledge, templates, workflows, ws
+from app.api.routes import chat, conversations, debug, health, knowledge, templates, workflows, ws
 from app.config import settings
 from app.db.session import close_db, init_db
 
@@ -108,6 +108,7 @@ def create_app() -> FastAPI:
     application.include_router(ws.router, prefix="/api/v1", tags=["WebSocket"])
     application.include_router(knowledge.router, prefix="/api/v1", tags=["Knowledge"])
     application.include_router(templates.router, prefix="/api/v1", tags=["Templates"])
+    application.include_router(debug.router, prefix="/api/v1", tags=["Debug"])
 
     return application
 

@@ -84,7 +84,7 @@ curl -X POST http://localhost:8000/api/v1/chat \
 - Global error handler middleware (consistent JSON errors + request IDs)
 - Request timing middleware with structured logging (structlog)
 - Retry with exponential backoff (tenacity) on all LLM & n8n API calls
-- 31 backend tests (validator, generator, n8n client, API routes)
+- 53 backend tests (validator, generator, n8n client, API routes, intelligence pipeline)
 - Toast notification system (success/error/warning/info, auto-dismiss)
 - API retry on network errors (2 retries, 1s delay)
 - WebSocket auto-reconnect with exponential backoff
@@ -145,7 +145,9 @@ All handled in `generator.py` `_fix_node_parameters()` + `_post_process()`:
 - API routes: `backend/app/api/routes/{chat,conversations,workflows,knowledge,templates,health}.py`
 - RAG: `backend/app/rag/chroma_client.py`
 - Knowledge base: `backend/app/rag/knowledge/{patterns,nodes,examples}/*.md`
-- Tests: `backend/tests/test_{validator,generator,n8n_client,api}.py`
+- Tests: `backend/tests/test_{validator,generator,n8n_client,api,intelligence_layers}.py`
+- Benchmark: `backend/scripts/benchmark.py` + `benchmark_prompts.json`
+- Debug API: `backend/app/api/routes/debug.py`
 - Migrations: `backend/alembic/versions/`
 
 ### Frontend
@@ -154,12 +156,18 @@ All handled in `generator.py` `_fix_node_parameters()` + `_post_process()`:
 - Layout: `frontend/src/components/layout/{Header,Sidebar}.tsx`
 - Workflow: `frontend/src/components/workflow/{WorkflowCard,WorkflowJsonViewer,VersionHistory}.tsx`
 - Knowledge: `frontend/src/components/knowledge/KnowledgePanel.tsx`
-- Templates: `frontend/src/components/templates/TemplatePanel.tsx`
+- Templates: `frontend/src/components/templates/{TemplatePanel,TemplateModal}.tsx`
+- Debug: `frontend/src/components/debug/{ContextDebugPanel,DebugModal}.tsx`
 - UI: `frontend/src/components/ui/{Toast,ToastContainer,Skeleton}.tsx`
 - Hooks: `frontend/src/hooks/{use-chat,use-websocket}.ts`
 - Stores: `frontend/src/stores/{chat-store,toast-store}.ts`
 - API client: `frontend/src/lib/api.ts`
 - Types: `frontend/src/lib/types.ts`
+
+### Documentation
+- `docs/rag-strategy.md` — RAG & knowledge retrieval architecture
+- `docs/test-strategy.md` — Test strategy, all test cases, benchmark CLI
+- `docs/benchmark-results.md` — LLM model comparison benchmark results
 
 ### Infrastructure
 - Docker Compose: `docker-compose.yml` (7 services + 5 volumes)
@@ -175,7 +183,7 @@ docker compose up -d
 # Run migrations
 docker compose exec backend alembic upgrade head
 
-# Run tests (31 tests)
+# Run tests (53 tests)
 cd backend && python -m pytest tests/ -v
 
 # Health check
@@ -219,6 +227,7 @@ docker compose exec backend alembic revision --autogenerate -m "description"
 - `GET /api/v1/templates/categories` — List template categories
 - `POST /api/v1/rag/ingest` — Ingest RAG knowledge
 - `GET /api/v1/rag/search?q=` — Search RAG
+- `POST /api/v1/debug/context` — Inspect intelligence pipeline context assembly (no LLM call)
 - `GET /api/v1/health` — Health check
 
 ## Database Tables

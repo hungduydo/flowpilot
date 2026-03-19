@@ -1,6 +1,6 @@
 # RAG & Knowledge Retrieval Strategy
 
-FlowPilot uses a **3-layer knowledge system** to provide the LLM with relevant context for every workflow generation request. This document describes the architecture, retrieval strategies, and token budget management.
+FlowPilot uses a **4-layer knowledge system** to provide the LLM with relevant context for every workflow generation request. This document describes the architecture, retrieval strategies, and token budget management.
 
 ---
 
@@ -15,20 +15,21 @@ User Message
 └──────────┬──────────┘
            │  keywords: {"slack", "message", "send", "n8n-nodes-base.slack", ...}
            ▼
-┌──────────────────────────────────────────────────────────────────┐
-│                    3-Layer Context Assembly                      │
-│                                                                  │
-│  ┌──────────────────┐  ┌──────────────────┐  ┌───────────────┐  │
-│  │  Layer 1: RAG    │  │ Layer 2: Notes   │  │ Layer 3: Auto │  │
-│  │  ChromaDB search │  │ User knowledge   │  │ Learning      │  │
-│  │  (2000 tokens)   │  │ (1500 tokens)    │  │ (1000 tokens) │  │
-│  └────────┬─────────┘  └────────┬─────────┘  └──────┬────────┘  │
-│           │                     │                    │           │
-│           ▼                     ▼                    ▼           │
-│  ┌──────────────────────────────────────────────────────────┐   │
-│  │              Merged Context (≤4500 tokens)               │   │
-│  └──────────────────────────────────────────────────────────┘   │
-└──────────────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────────────────┐
+│                        4-Layer Context Assembly                              │
+│                                                                              │
+│  ┌──────────────┐  ┌──────────────┐  ┌─────────────┐  ┌──────────────────┐  │
+│  │ Layer 1: RAG │  │ Layer 2:     │  │ Layer 3:    │  │ Layer 4:         │  │
+│  │ ChromaDB     │  │ Knowledge    │  │ Auto        │  │ n8n Templates    │  │
+│  │ (2000 tok)   │  │ Notes        │  │ Learning    │  │ (1500 tok)       │  │
+│  │              │  │ (1500 tok)   │  │ (1000 tok)  │  │                  │  │
+│  └──────┬───────┘  └──────┬───────┘  └──────┬──────┘  └────────┬─────────┘  │
+│         │                 │                  │                  │            │
+│         ▼                 ▼                  ▼                  ▼            │
+│  ┌──────────────────────────────────────────────────────────────────────┐   │
+│  │                   Merged Context (≤6000 tokens)                      │   │
+│  └──────────────────────────────────────────────────────────────────────┘   │
+└──────────────────────────────────────────────────────────────────────────────┘
            │
            ▼
      LLM System Prompt + Context → Workflow Generation
@@ -261,7 +262,8 @@ Each context layer has a hard token budget to prevent context window overflow:
 | Knowledge Notes | 1,500 tokens | Highest | User-defined rules must always be followed |
 | Learning Records | 1,000 tokens | Medium | Prevent repeated LLM mistakes |
 | RAG Results | 2,000 tokens | Standard | General reference material |
-| **Total** | **≤4,500 tokens** | — | Predictable context size |
+| Template Examples | 1,500 tokens | Standard | Proven community workflow patterns |
+| **Total** | **≤6,000 tokens** | — | Predictable context size |
 
 ### Budget Enforcement
 
@@ -301,13 +303,14 @@ async def _handle_create(self, session, conversation, user_message, ...):
     # 1. Extract keywords from user message
     keywords = self._extract_keywords(user_message)
 
-    # 2. Gather context from all 3 layers (with relevance + budgets)
+    # 2. Gather context from all 4 layers (with relevance + budgets)
     rag_context = self._get_rag_context(user_message)         # ≤2000 tokens
     knowledge = await self._get_knowledge_context(session, keywords)  # ≤1500 tokens
     learning = await self._get_learning_context(session, keywords)    # ≤1000 tokens
+    templates = self._get_template_context(user_message, keywords)    # ≤1500 tokens
 
     # 3. Merge into supplementary context
-    extra_context = rag_context + knowledge + learning         # ≤4500 tokens
+    extra_context = rag_context + knowledge + learning + templates    # ≤6000 tokens
 
     # 4. Build system prompt + inject context
     system_prompt = build_system_prompt() + extra_context

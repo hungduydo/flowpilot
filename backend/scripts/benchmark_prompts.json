@@ -1,0 +1,92 @@
+[
+  {
+    "id": "slack-webhook",
+    "prompt": "Create a webhook that sends a Slack message with the received data",
+    "expected_nodes": ["n8n-nodes-base.webhook", "n8n-nodes-base.slack"],
+    "expected_params": {
+      "n8n-nodes-base.slack": {"resource": "message", "operation": "send"}
+    },
+    "min_nodes": 2,
+    "max_nodes": 4
+  },
+  {
+    "id": "schedule-email",
+    "prompt": "Every 5 minutes check a website and email me if it returns an error status code",
+    "expected_nodes": ["n8n-nodes-base.scheduleTrigger", "n8n-nodes-base.httpRequest", "n8n-nodes-base.if"],
+    "expected_params": {},
+    "min_nodes": 3,
+    "max_nodes": 7
+  },
+  {
+    "id": "google-sheets-webhook",
+    "prompt": "When a webhook is triggered, save the incoming JSON data to a Google Sheets spreadsheet",
+    "expected_nodes": ["n8n-nodes-base.webhook", "n8n-nodes-base.googleSheets"],
+    "expected_params": {
+      "n8n-nodes-base.googleSheets": {"resource": "sheet"}
+    },
+    "min_nodes": 2,
+    "max_nodes": 5
+  },
+  {
+    "id": "telegram-notification",
+    "prompt": "Create a workflow that sends a Telegram message when a webhook receives data",
+    "expected_nodes": ["n8n-nodes-base.webhook", "n8n-nodes-base.telegram"],
+    "expected_params": {
+      "n8n-nodes-base.telegram": {"resource": "message", "operation": "sendMessage"}
+    },
+    "min_nodes": 2,
+    "max_nodes": 4
+  },
+  {
+    "id": "github-slack",
+    "prompt": "When a new GitHub issue is created, send a notification to a Slack channel",
+    "expected_nodes": ["n8n-nodes-base.githubTrigger", "n8n-nodes-base.slack"],
+    "expected_params": {
+      "n8n-nodes-base.slack": {"resource": "message", "operation": "send"}
+    },
+    "min_nodes": 2,
+    "max_nodes": 5
+  },
+  {
+    "id": "code-transform",
+    "prompt": "Create a webhook workflow that transforms incoming data using a Code node and returns the result",
+    "expected_nodes": ["n8n-nodes-base.webhook", "n8n-nodes-base.code"],
+    "expected_params": {},
+    "min_nodes": 2,
+    "max_nodes": 5
+  },
+  {
+    "id": "http-json-parse",
+    "prompt": "Fetch JSON data from an API endpoint every hour and save specific fields to a Google Sheet",
+    "expected_nodes": ["n8n-nodes-base.scheduleTrigger", "n8n-nodes-base.httpRequest", "n8n-nodes-base.googleSheets"],
+    "expected_params": {
+      "n8n-nodes-base.httpRequest": {"method": "GET"}
+    },
+    "min_nodes": 3,
+    "max_nodes": 6
+  },
+  {
+    "id": "if-branching",
+    "prompt": "Create a webhook that checks if the incoming amount is greater than 100, if yes send Slack alert, otherwise log it",
+    "expected_nodes": ["n8n-nodes-base.webhook", "n8n-nodes-base.if", "n8n-nodes-base.slack"],
+    "expected_params": {},
+    "min_nodes": 3,
+    "max_nodes": 6
+  },
+  {
+    "id": "rss-slack",
+    "prompt": "Monitor an RSS feed every 30 minutes and post new items to a Slack channel",
+    "expected_nodes": ["n8n-nodes-base.rssFeedRead"],
+    "expected_params": {},
+    "min_nodes": 2,
+    "max_nodes": 5
+  },
+  {
+    "id": "gmail-sheets",
+    "prompt": "When a new email arrives in Gmail, extract the subject and sender, then add a row to Google Sheets",
+    "expected_nodes": ["n8n-nodes-base.gmailTrigger", "n8n-nodes-base.googleSheets"],
+    "expected_params": {},
+    "min_nodes": 2,
+    "max_nodes": 5
+  }
+]

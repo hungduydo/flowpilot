@@ -8,14 +8,17 @@ import {
   ExternalLink,
   Zap,
   LayoutTemplate,
+  Bug,
 } from 'lucide-react'
 import { TemplateModal } from '@/components/templates/TemplateModal'
+import { DebugModal } from '@/components/debug/DebugModal'
 
 const N8N_URL = process.env.NEXT_PUBLIC_N8N_URL || 'http://localhost:5678'
 
 export function Header() {
   const { sidebarOpen, toggleSidebar } = useChat()
   const [showTemplates, setShowTemplates] = useState(false)
+  const [showDebug, setShowDebug] = useState(false)
 
   return (
     <>
@@ -43,6 +46,14 @@ export function Header() {
 
         <div className="flex items-center gap-2">
           <button
+            onClick={() => setShowDebug(true)}
+            className="flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-lg bg-surface-800 hover:bg-surface-700 text-surface-300 hover:text-surface-100 transition-colors"
+            title="Debug intelligence pipeline"
+          >
+            <Bug size={14} />
+            <span>Debug</span>
+          </button>
+          <button
             onClick={() => setShowTemplates(true)}
             className="flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-lg bg-surface-800 hover:bg-surface-700 text-surface-300 hover:text-surface-100 transition-colors"
             title="Browse n8n templates"
@@ -65,6 +76,10 @@ export function Header() {
       <TemplateModal
         open={showTemplates}
         onClose={() => setShowTemplates(false)}
+      />
+      <DebugModal
+        open={showDebug}
+        onClose={() => setShowDebug(false)}
       />
     </>
   )
