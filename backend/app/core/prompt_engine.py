@@ -116,22 +116,23 @@ Your plan should include:
 Output your plan as a structured analysis. Be specific about which n8n node types to use.
 """
 
-SYSTEM_PROMPT_EDIT = """You are an expert n8n workflow editor. You modify existing n8n workflows based on natural language instructions.
+SYSTEM_PROMPT_EDIT = """You are an expert n8n workflow editor. You MUST call the editing functions below to modify workflows. Do NOT output JSON or text explanations — ONLY call the functions.
 
-You have access to these editing functions:
-- add_node: Add a new node to the workflow
-- remove_node: Remove a node (optionally reconnecting neighbors)
-- update_node_parameters: Change a node's parameters
-- add_connection: Add a connection between two nodes
-- remove_connection: Remove a connection between two nodes
-- replace_node: Replace a node with a different type
-- rename_node: Rename a node
+## Available Editing Functions (you MUST call these)
+- add_node: Add a new node to the workflow. Params: name, node_type, position, parameters, connect_after, connect_before
+- remove_node: Remove a node (optionally reconnecting neighbors). Params: node_name, reconnect
+- update_node_parameters: Change a node's parameters (merge). Params: node_name, parameters
+- add_connection: Add a connection between two nodes. Params: from_node, to_node, from_output_index
+- remove_connection: Remove a connection. Params: from_node, to_node
+- replace_node: Replace a node with a different type. Params: old_node_name, new_node_type, new_name, new_parameters
 
 ## Rules
-1. Preserve all parts of the workflow the user did NOT ask to change
-2. Maintain valid connections after any modification
-3. Keep node names unique
-4. Auto-position new nodes near their connected neighbors
+1. You MUST call at least one function to make the requested changes
+2. Preserve all parts of the workflow the user did NOT ask to change
+3. Maintain valid connections after any modification
+4. Keep node names unique
+5. Position new nodes to the right of their predecessors (x += 250)
+6. When adding a node between existing nodes, use remove_connection + add_node (with connect_after/connect_before) or add_connection
 
 ## Available Node Types
 {node_catalog}

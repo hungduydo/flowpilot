@@ -1,6 +1,35 @@
 import { create } from 'zustand'
 import type { Message, Conversation } from '@/lib/types'
 
+const STORAGE_KEY = 'flowpilot-model'
+
+/** Read persisted model selection from localStorage, returns [provider, model] or [null, null]. */
+function loadPersistedModel(): [string | null, string | null] {
+  if (typeof window === 'undefined') return [null, null]
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY)
+    if (!raw) return [null, null]
+    const { provider, model } = JSON.parse(raw)
+    if (typeof provider === 'string' && typeof model === 'string') {
+      return [provider, model]
+    }
+  } catch {
+    // Corrupted data — clear it
+    localStorage.removeItem(STORAGE_KEY)
+  }
+  return [null, null]
+}
+
+/** Persist model selection to localStorage. Null clears it. */
+function persistModel(provider: string | null, model: string | null) {
+  if (typeof window === 'undefined') return
+  if (provider && model) {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ provider, model }))
+  } else {
+    localStorage.removeItem(STORAGE_KEY)
+  }
+}
+
 interface ActiveWorkflow {
   id: string
   name: string
@@ -36,6 +65,14 @@ interface ChatState {
   setStreamingContent: (content: string) => void
   appendStreamingContent: (token: string) => void
   clearStreamingContent: () => void
+
+  // Model selection (persisted to localStorage)
+  selectedProvider: string | null
+  selectedModel: string | null
+  setSelectedProvider: (provider: string | null) => void
+  setSelectedModel: (model: string | null) => void
+  setSelectedModelSpec: (provider: string | null, model: string | null) => void
+  hydrateModel: () => void
 
   // Sidebar
   sidebarOpen: boolean
@@ -97,6 +134,23 @@ export const useChatStore = create<ChatState>((set) => ({
   appendStreamingContent: (token) =>
     set((state) => ({ streamingContent: state.streamingContent + token })),
   clearStreamingContent: () => set({ streamingContent: '' }),
+
+  selectedProvider: null,
+  selectedModel: null,
+  setSelectedProvider: (provider) => {
+    set({ selectedProvider: provider })
+  },
+  setSelectedModel: (model) => {
+    set({ selectedModel: model })
+  },
+  setSelectedModelSpec: (provider, model) => {
+    persistModel(provider, model)
+    set({ selectedProvider: provider, selectedModel: model })
+  },
+  hydrateModel: () => {
+    const [p, m] = loadPersistedModel()
+    set({ selectedProvider: p, selectedModel: m })
+  },
 
   sidebarOpen: true,
   toggleSidebar: () => set((state) => ({ sidebarOpen: !state.sidebarOpen })),

@@ -20,7 +20,9 @@ import {
   ArchiveRestore,
   Clock,
   BookOpen,
+  Copy,
 } from 'lucide-react'
+import { CopyId } from '@/components/ui/CopyId'
 
 const N8N_URL = process.env.NEXT_PUBLIC_N8N_URL || 'http://localhost:5678'
 
@@ -189,9 +191,12 @@ export function Sidebar() {
                     <p className="text-sm truncate">
                       {truncate(conv.title || 'Untitled chat', 28)}
                     </p>
-                    <p className="text-xs text-surface-500">
-                      {formatTimestamp(conv.updated_at)}
-                    </p>
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs text-surface-500">
+                        {formatTimestamp(conv.updated_at)}
+                      </span>
+                      <CopyId label="ID" value={conv.id} truncate={6} />
+                    </div>
                   </div>
                   {confirmDeleteId === conv.id ? (
                     <div className="flex items-center gap-0.5">
@@ -279,12 +284,13 @@ export function Sidebar() {
                     <Workflow size={14} className="shrink-0" />
                     <p className="text-sm truncate flex-1">{wf.name}</p>
                   </a>
-                  {/* Status + time + actions — same row */}
+                  {/* Status + time + ID + actions — same row */}
                   <div className="flex items-center gap-1.5 mt-1 ml-[22px]">
                     <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded-full ${status.color}`}>
                       {status.label}
                     </span>
                     <span className="text-[11px] text-surface-500">{formatTimestamp(wf.updatedAt)}</span>
+                    <CopyId label="ID" value={wf.id} truncate={6} />
                     <div className="ml-auto flex items-center gap-0.5">
                       {confirmArchiveId === wf.id ? (
                         <>

@@ -153,7 +153,7 @@ All handled in `generator.py` `_fix_node_parameters()` + `_post_process()`:
 ### Frontend
 - App: `frontend/src/app/{layout,page}.tsx`
 - Chat: `frontend/src/components/chat/{ChatContainer,MessageBubble,ChatInput,TypingIndicator,WelcomeScreen}.tsx`
-- Layout: `frontend/src/components/layout/{Header,Sidebar}.tsx`
+- Layout: `frontend/src/components/layout/{Header,Sidebar,ModelSelector}.tsx`
 - Workflow: `frontend/src/components/workflow/{WorkflowCard,WorkflowJsonViewer,VersionHistory}.tsx`
 - Knowledge: `frontend/src/components/knowledge/KnowledgePanel.tsx`
 - Templates: `frontend/src/components/templates/{TemplatePanel,TemplateModal}.tsx`

@@ -55,6 +55,8 @@ export async function sendChatMessage(
   message: string,
   conversationId?: string,
   workflowId?: string,
+  provider?: string | null,
+  model?: string | null,
 ) {
   return fetchAPI<{
     message: string
@@ -69,6 +71,8 @@ export async function sendChatMessage(
       message,
       conversation_id: conversationId,
       workflow_id: workflowId || undefined,
+      provider: provider || undefined,
+      model: model || undefined,
     }),
   })
 }

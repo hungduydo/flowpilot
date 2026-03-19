@@ -51,7 +51,7 @@ export function useChat() {
         const urlMatch = lastWfMsg.n8n_url.match(/\/workflow\/([^/]+)/)
         if (urlMatch) {
           const wfName = lastWfMsg.workflow_json
-            ? (lastWfMsg.workflow_json as Record<string, unknown>).name as string
+            ? (lastWfMsg.workflow_json as unknown as Record<string, unknown>).name as string
             : 'Workflow'
           store.setActiveWorkflow({
             id: urlMatch[1],
@@ -87,6 +87,8 @@ export function useChat() {
         content.trim(),
         store.activeConversationId || undefined,
         store.activeWorkflow?.id || undefined,
+        store.selectedProvider,
+        store.selectedModel,
       )
 
       // Set conversation ID if new
@@ -104,7 +106,7 @@ export function useChat() {
       // Update active workflow if response contains one
       if (n8nWorkflowId) {
         const wfName = workflowJson
-          ? (workflowJson as Record<string, unknown>).name as string
+          ? (workflowJson as unknown as Record<string, unknown>).name as string
           : store.activeWorkflow?.name || 'Workflow'
         store.setActiveWorkflow({
           id: n8nWorkflowId,
@@ -135,7 +137,7 @@ export function useChat() {
       store.setLoading(false)
       store.setStatusText('')
     }
-  }, [store.activeConversationId, store.isLoading, store.activeWorkflow, loadConversations])
+  }, [store.activeConversationId, store.isLoading, store.activeWorkflow, store.selectedProvider, store.selectedModel, loadConversations])
 
   const newConversation = useCallback(() => {
     store.setActiveConversation(null)

@@ -490,7 +490,7 @@ async def _structured_ollama(
                 content_preview=content[:300],
                 tokens=response.usage.total_tokens if response.usage else 0)
 
-    result = json.loads(content)
+    result = _extract_json(content)
     return result
 
 
@@ -722,24 +722,37 @@ async def _fc_ollama_fallback(
     )
 
     fallback_system = (
-        "You are an n8n workflow editor. Respond ONLY with a JSON array of tool calls.\n"
+        "You are an n8n workflow editor. You MUST respond ONLY with a JSON array of tool calls.\n"
         f"Available tools:\n{tool_descriptions}\n\n"
         'Format: [{"name": "tool_name", "arguments": {...}}, ...]\n'
-        "No explanation. Only JSON array."
+        "You MUST call at least one tool. No explanation. Only JSON array."
     )
 
-    messages[0] = {"role": "system", "content": fallback_system}
+    # Build clean message list with fallback system prompt
+    fallback_messages = [{"role": "system", "content": fallback_system}]
+    for msg in messages:
+        if msg.get("role") != "system":
+            fallback_messages.append(msg)
+        else:
+            # Append original system content as context in user message
+            fallback_messages.append({
+                "role": "user",
+                "content": f"Context:\n{msg['content']}"
+            })
 
     response = await client.chat.completions.create(
         model=model,
-        messages=messages,
+        messages=fallback_messages,
         temperature=temperature,
         max_tokens=settings.max_output_tokens,
         response_format={"type": "json_object"},
     )
 
     content = response.choices[0].message.content or "[]"
-    result = json.loads(content)
+    try:
+        result = _extract_json(content)
+    except (json.JSONDecodeError, ValueError):
+        result = []
 
     if isinstance(result, dict):
         result = result.get("tool_calls", result.get("operations", []))

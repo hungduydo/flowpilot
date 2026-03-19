@@ -570,11 +570,26 @@ class ConversationEngine:
             }
 
         keywords = self._extract_keywords(user_message)
+        rag_context = self._get_rag_context(user_message)
         knowledge_context = await self._get_knowledge_context(session, keywords)
         learning_context = await self._get_learning_context(session, keywords)
+        template_context = self._get_template_context(user_message, keywords)
+        full_context = rag_context + knowledge_context + learning_context + template_context
+
+        # Load conversation history so LLM can reference prior messages
+        history = await MessageRepository.get_history(session, conversation.id)
+        # Build a concise summary of recent messages (last 10, skip workflow JSON blobs)
+        history_lines = []
+        for msg in history[-10:]:
+            role = msg.role.upper()
+            content = msg.content[:500]  # Truncate long messages
+            history_lines.append(f"[{role}]: {content}")
+        conversation_context = "\n".join(history_lines) if history_lines else ""
+
         edited = await self.editor.edit(
             current_workflow, user_message,
-            rag_context=knowledge_context + learning_context,
+            rag_context=full_context,
+            conversation_history=conversation_context,
             provider=provider, model=model,
         )
 

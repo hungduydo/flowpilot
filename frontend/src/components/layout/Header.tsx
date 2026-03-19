@@ -12,6 +12,7 @@ import {
 } from 'lucide-react'
 import { TemplateModal } from '@/components/templates/TemplateModal'
 import { DebugModal } from '@/components/debug/DebugModal'
+import { ModelSelector } from './ModelSelector'
 
 const N8N_URL = process.env.NEXT_PUBLIC_N8N_URL || 'http://localhost:5678'
 
@@ -45,6 +46,10 @@ export function Header() {
         </div>
 
         <div className="flex items-center gap-2">
+          <ModelSelector />
+
+          <div className="w-px h-5 bg-surface-700" />
+
           <button
             onClick={() => setShowDebug(true)}
             className="flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-lg bg-surface-800 hover:bg-surface-700 text-surface-300 hover:text-surface-100 transition-colors"

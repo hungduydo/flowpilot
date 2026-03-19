@@ -7,11 +7,12 @@ import { ChatInput } from './ChatInput'
 import { TypingIndicator } from './TypingIndicator'
 import { WelcomeScreen } from './WelcomeScreen'
 import { Workflow, ExternalLink, X } from 'lucide-react'
+import { CopyId } from '@/components/ui/CopyId'
 
 const N8N_URL = process.env.NEXT_PUBLIC_N8N_URL || 'http://localhost:5678'
 
 export function ChatContainer() {
-  const { messages, isLoading, statusText, activeWorkflow, sendMessage, detachWorkflow } = useChat()
+  const { messages, isLoading, statusText, activeWorkflow, sendMessage, detachWorkflow, activeConversationId } = useChat()
   const bottomRef = useRef<HTMLDivElement>(null)
 
   // Auto-scroll to bottom
@@ -21,6 +22,15 @@ export function ChatContainer() {
 
   return (
     <div className="flex flex-col flex-1 min-h-0">
+      {/* Chat ID Bar (when no workflow banner) */}
+      {!activeWorkflow && activeConversationId && messages.length > 0 && (
+        <div className="border-b border-surface-800/50 bg-surface-900/50">
+          <div className="max-w-3xl mx-auto px-4 py-1.5 flex items-center">
+            <CopyId label="Chat ID" value={activeConversationId} truncate={12} />
+          </div>
+        </div>
+      )}
+
       {/* Active Workflow Banner */}
       {activeWorkflow && (
         <div className="border-b border-surface-800 bg-surface-900/80 backdrop-blur-sm">
@@ -29,9 +39,16 @@ export function ChatContainer() {
               <Workflow size={13} className="text-primary-400" />
               <span className="text-xs font-medium text-primary-400">Editing</span>
             </div>
-            <span className="text-sm text-surface-200 truncate flex-1">
+            <span className="text-sm text-surface-200 truncate">
               {activeWorkflow.name}
             </span>
+            <div className="flex items-center gap-2">
+              {activeConversationId && (
+                <CopyId label="Chat" value={activeConversationId} truncate={8} />
+              )}
+              <CopyId label="Workflow" value={activeWorkflow.id} truncate={8} />
+            </div>
+            <div className="flex-1" />
             {activeWorkflow.editorUrl && (
               <a
                 href={activeWorkflow.editorUrl}

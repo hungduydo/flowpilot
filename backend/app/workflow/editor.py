@@ -37,6 +37,7 @@ class WorkflowEditor:
         workflow_json: dict[str, Any],
         edit_instruction: str,
         rag_context: str = "",
+        conversation_history: str = "",
         provider: str | None = None,
         model: str | None = None,
     ) -> dict[str, Any]:
@@ -51,8 +52,17 @@ class WorkflowEditor:
         Returns:
             Modified workflow JSON
         """
+        # Strip n8n metadata fields that confuse the LLM
+        n8n_meta_keys = {
+            "updatedAt", "createdAt", "id", "active", "isArchived",
+            "staticData", "meta", "pinData", "versionId", "shared",
+            "activeVersionId", "versionCounter", "triggerCount",
+            "tags", "activeVersion", "description",
+        }
+        clean_workflow = {k: v for k, v in workflow_json.items() if k not in n8n_meta_keys}
+
         # Build prompt with current workflow
-        system_prompt = build_edit_prompt(workflow_json, rag_context)
+        system_prompt = build_edit_prompt(clean_workflow, rag_context)
 
         messages = [
             {"role": "system", "content": system_prompt},
@@ -65,12 +75,36 @@ class WorkflowEditor:
             },
         ]
 
-        # Get edit operations via function calling
+        # Get edit operations via function calling (try twice)
         tool_calls = await function_calling(messages, temperature=0.3, provider=provider, model=model)
 
         if not tool_calls:
-            logger.warning("No edit operations returned by LLM")
-            return workflow_json
+            logger.warning("No edit operations on first attempt, retrying with higher temperature")
+            tool_calls = await function_calling(messages, temperature=0.7, provider=provider, model=model)
+
+        if not tool_calls:
+            logger.warning("No edit operations returned by LLM after retry — falling back to regeneration")
+            # Fallback: regenerate entire workflow with edit instruction
+            # Include full workflow JSON so the LLM knows exact structure
+            workflow_summary = json.dumps(clean_workflow, indent=2)
+            combined_description = (
+                f"Modify this existing workflow based on the user's request.\n\n"
+                f"## Current Workflow JSON\n```json\n{workflow_summary}\n```\n\n"
+                f"## User's Edit Request\n{edit_instruction}\n\n"
+                f"## Instructions\n"
+                f"Generate the COMPLETE updated workflow JSON with:\n"
+                f"- All original nodes preserved (unless user asked to remove them)\n"
+                f"- The requested changes applied\n"
+                f"- All connections properly updated\n"
+                f"- Keep the same workflow name unless user asked to rename it"
+            )
+            regenerated, _fixes = await self._generator.generate(
+                combined_description,
+                rag_context=rag_context,
+                provider=provider,
+                model=model,
+            )
+            return regenerated
 
         # Apply operations sequentially
         modified = json.loads(json.dumps(workflow_json))  # Deep copy
@@ -110,6 +144,7 @@ class WorkflowEditor:
             "add_connection": self._add_connection,
             "remove_connection": self._remove_connection,
             "replace_node": self._replace_node,
+            "rename_node": self._rename_node,
         }
 
         handler = op_map.get(operation)
@@ -279,6 +314,21 @@ class WorkflowEditor:
                     node["name"] = new_name
                     # Update connection references
                     self._rename_in_connections(workflow, old_name, new_name)
+                return workflow
+
+        raise EditOperationError(f"Node '{old_name}' not found")
+
+    def _rename_node(
+        self, workflow: dict[str, Any], args: dict[str, Any]
+    ) -> dict[str, Any]:
+        """Rename a node and update all connection references."""
+        old_name = args["old_name"]
+        new_name = args["new_name"]
+
+        for node in workflow["nodes"]:
+            if node.get("name") == old_name:
+                node["name"] = new_name
+                self._rename_in_connections(workflow, old_name, new_name)
                 return workflow
 
         raise EditOperationError(f"Node '{old_name}' not found")

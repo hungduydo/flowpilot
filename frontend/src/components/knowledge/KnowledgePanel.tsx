@@ -23,7 +23,7 @@ import {
   ToggleRight,
   Brain,
   Zap,
-  UserPen,
+  UserCog,
   AlertTriangle,
 } from 'lucide-react'
 import { formatTimestamp } from '@/lib/utils'
@@ -92,7 +92,7 @@ export function KnowledgePanel() {
       case 'auto_fix':
         return { color: 'text-blue-400 bg-blue-400/10', icon: Zap, label: 'Auto-fix' }
       case 'user_edit':
-        return { color: 'text-purple-400 bg-purple-400/10', icon: UserPen, label: 'User edit' }
+        return { color: 'text-purple-400 bg-purple-400/10', icon: UserCog, label: 'User edit' }
       case 'validation_error':
         return { color: 'text-red-400 bg-red-400/10', icon: AlertTriangle, label: 'Validation' }
       default:
