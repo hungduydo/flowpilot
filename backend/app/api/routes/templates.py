@@ -70,18 +70,6 @@ async def list_template_categories():
         raise HTTPException(502, f"Failed to fetch categories: {e}")
 
 
-@router.get("/templates/{template_id}")
-async def get_template_detail(template_id: int):
-    """Get full template detail from n8n."""
-    try:
-        data = await get_template(template_id)
-    except Exception as e:
-        raise HTTPException(502, f"Failed to fetch template: {e}")
-    if not data:
-        raise HTTPException(404, "Template not found")
-    return data
-
-
 # ── Import templates ────────────────────────────────────────
 
 
@@ -283,3 +271,18 @@ async def delete_imported_template(
     # Remove from ChromaDB
     if template.chroma_doc_ids:
         remove_template_chunks(template.chroma_doc_ids)
+
+
+# ── Single template detail (must be LAST — {template_id} is a catch-all) ──
+
+
+@router.get("/templates/{template_id}")
+async def get_template_detail(template_id: int):
+    """Get full template detail from n8n."""
+    try:
+        data = await get_template(template_id)
+    except Exception as e:
+        raise HTTPException(502, f"Failed to fetch template: {e}")
+    if not data:
+        raise HTTPException(404, "Template not found")
+    return data
