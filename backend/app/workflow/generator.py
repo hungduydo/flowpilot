@@ -212,6 +212,9 @@ class WorkflowGenerator:
         """Fix common LLM mistakes in node parameters for specific node types."""
         node_type = node.get("type", "")
         params = node.get("parameters", {})
+        if not isinstance(params, dict):
+            params = {}
+            node["parameters"] = params
 
         # ── 1. Enforce typeVersion from registry ──
         node_def = get_node(node_type)
