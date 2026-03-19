@@ -59,6 +59,7 @@ services:
     restart: unless-stopped
     volumes:
       - ./backend:/app
+      - backend_model_cache:/root/.cache
 
   # ─── Next.js Frontend ───
   frontend:
@@ -134,3 +135,4 @@ volumes:
   redisdata:
   chromadata:
   n8n_data:
+  backend_model_cache:
