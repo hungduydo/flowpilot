@@ -143,7 +143,7 @@ export function Sidebar() {
               : 'text-surface-500 hover:text-surface-300'
           }`}
         >
-          n8n
+          Workflows
         </button>
         <button
           onClick={() => setActiveTab('knowledge')}

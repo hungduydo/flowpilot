@@ -66,6 +66,26 @@ class N8nClient:
             raise N8nClientError(response.status_code, detail)
         return response.json()
 
+    # Keys that n8n API accepts for create/update
+    _VALID_WORKFLOW_KEYS = {
+        "name", "nodes", "connections", "settings", "staticData",
+    }
+
+    def _clean_workflow_payload(self, workflow_json: dict[str, Any]) -> dict[str, Any]:
+        """Strip n8n-internal fields that the API rejects on create/update."""
+        cleaned = {k: v for k, v in workflow_json.items() if k in self._VALID_WORKFLOW_KEYS}
+        # Also clean nodes: remove extra fields n8n doesn't accept
+        if "nodes" in cleaned:
+            valid_node_keys = {
+                "id", "name", "type", "typeVersion", "position", "parameters",
+                "credentials", "disabled", "notes", "webhookId",
+            }
+            cleaned["nodes"] = [
+                {k: v for k, v in node.items() if k in valid_node_keys}
+                for node in cleaned["nodes"]
+            ]
+        return cleaned
+
     # ─── Workflow CRUD ───
 
     @n8n_retry
@@ -95,7 +115,8 @@ class N8nClient:
                 pass  # If check fails, proceed with create
 
         async with self._client() as client:
-            response = await client.post("/workflows", json=workflow_json)
+            payload = self._clean_workflow_payload(workflow_json)
+            response = await client.post("/workflows", json=payload)
             result = await self._handle_response(response)
             logger.info(
                 "Workflow created on n8n",
@@ -128,7 +149,8 @@ class N8nClient:
         Note: If workflow is active, updated version is auto-republished
         """
         async with self._client() as client:
-            response = await client.put(f"/workflows/{workflow_id}", json=workflow_json)
+            payload = self._clean_workflow_payload(workflow_json)
+            response = await client.put(f"/workflows/{workflow_id}", json=payload)
             result = await self._handle_response(response)
             logger.info(
                 "Workflow updated on n8n",

@@ -19,6 +19,7 @@ import structlog
 
 from app.core.llm_client import function_calling
 from app.core.prompt_engine import build_edit_prompt
+from app.workflow.generator import WorkflowGenerator
 from app.workflow.validator import WorkflowValidator
 
 logger = structlog.get_logger()
@@ -29,6 +30,7 @@ class WorkflowEditor:
 
     def __init__(self):
         self.validator = WorkflowValidator()
+        self._generator = WorkflowGenerator()
 
     async def edit(
         self,
@@ -82,6 +84,9 @@ class WorkflowEditor:
             except EditOperationError as e:
                 logger.error("Edit operation failed", operation=func_name, error=str(e))
                 # Continue with other operations
+
+        # Post-process (typeVersion enforcement, resource/operation fixes, etc.)
+        modified = self._generator._post_process(modified)
 
         # Validate result
         errors = self.validator.validate(modified)
