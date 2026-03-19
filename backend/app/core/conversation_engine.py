@@ -20,6 +20,7 @@ from app.db.models import Conversation, Message
 from app.db.repositories import (
     ConversationRepository,
     KnowledgeNoteRepository,
+    LearningRepository,
     MessageRepository,
     WorkflowRepository,
     WorkflowVersionRepository,
@@ -241,6 +242,27 @@ class ConversationEngine:
             logger.warning("Failed to load knowledge notes", error=str(e))
             return ""
 
+    async def _get_learning_context(
+        self, session: AsyncSession, node_types: list[str] | None = None
+    ) -> str:
+        """Load auto-learned corrections for prompt injection."""
+        try:
+            records = await LearningRepository.get_relevant(
+                session, node_types=node_types, limit=15
+            )
+            if not records:
+                return ""
+            lines = [
+                f"- [{r.node_type or 'general'}] {r.description} (seen {r.frequency}x)"
+                for r in records
+            ]
+            return (
+                "\n\n## Learned Corrections (avoid these mistakes):\n"
+                + "\n".join(lines)
+            )
+        except Exception:
+            return ""
+
     async def _handle_create(
         self,
         session: AsyncSession,
@@ -254,10 +276,25 @@ class ConversationEngine:
         """Generate a new workflow."""
         rag_context = self._get_rag_context(user_message)
         knowledge_context = await self._get_knowledge_context(session)
-        full_context = rag_context + knowledge_context
-        workflow_json = await self.generator.generate(
+        learning_context = await self._get_learning_context(session)
+        full_context = rag_context + knowledge_context + learning_context
+        workflow_json, fixes = await self.generator.generate(
             user_message, rag_context=full_context, provider=provider, model=model,
         )
+
+        # Save auto-fixes as learning records
+        if fixes:
+            for fix in fixes:
+                try:
+                    await LearningRepository.record_fix(
+                        session,
+                        record_type="auto_fix",
+                        node_type=fix.get("node_type"),
+                        description=fix["description"],
+                        fix_data=fix.get("fix_data"),
+                    )
+                except Exception:
+                    pass  # Don't fail on learning save
 
         # Deploy
         n8n_id = None
@@ -360,10 +397,23 @@ class ConversationEngine:
             }
 
         knowledge_context = await self._get_knowledge_context(session)
+        learning_context = await self._get_learning_context(session)
         edited = await self.editor.edit(
-            current_workflow, user_message, rag_context=knowledge_context,
+            current_workflow, user_message,
+            rag_context=knowledge_context + learning_context,
             provider=provider, model=model,
         )
+
+        # Record user edit as learning record
+        try:
+            await LearningRepository.record_fix(
+                session,
+                record_type="user_edit",
+                node_type=None,
+                description=f"User correction: {user_message[:200]}",
+            )
+        except Exception:
+            pass  # Don't fail on learning save
 
         n8n_id = workflow_id
         editor_url = None

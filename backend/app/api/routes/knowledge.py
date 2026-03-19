@@ -1,12 +1,12 @@
-"""API routes for user knowledge notes."""
+"""API routes for user knowledge notes and learning records."""
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Response
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.session import get_db
-from app.db.repositories import KnowledgeNoteRepository
+from app.db.repositories import KnowledgeNoteRepository, LearningRepository
 
 router = APIRouter()
 
@@ -94,3 +94,40 @@ async def delete_note(
     deleted = await KnowledgeNoteRepository.delete(session, nid)
     if not deleted:
         raise HTTPException(404, "Note not found")
+
+
+# ═══════════════════════════════════════════════════════════════════
+#  Learning Records (auto-captured corrections)
+# ═══════════════════════════════════════════════════════════════════
+
+
+@router.get("/knowledge/learning/records")
+async def list_learning_records(
+    session: AsyncSession = Depends(get_db),
+):
+    records = await LearningRepository.list_all(session)
+    return [
+        {
+            "id": str(r.id),
+            "record_type": r.record_type,
+            "node_type": r.node_type,
+            "description": r.description,
+            "frequency": r.frequency,
+            "created_at": r.created_at.isoformat() if r.created_at else None,
+        }
+        for r in records
+    ]
+
+
+@router.delete("/knowledge/learning/records/{record_id}", status_code=204)
+async def delete_learning_record(
+    record_id: str,
+    session: AsyncSession = Depends(get_db),
+):
+    try:
+        rid = uuid.UUID(record_id)
+    except ValueError:
+        raise HTTPException(400, "Invalid record ID")
+    deleted = await LearningRepository.delete(session, rid)
+    if not deleted:
+        raise HTTPException(404, "Record not found")

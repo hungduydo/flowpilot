@@ -227,6 +227,26 @@ export async function deleteKnowledgeNote(noteId: string) {
   })
 }
 
+// Learning Records
+export interface LearningRecord {
+  id: string
+  record_type: string
+  node_type: string | null
+  description: string
+  frequency: number
+  created_at: string | null
+}
+
+export async function getLearningRecords() {
+  return fetchAPI<LearningRecord[]>('/api/v1/knowledge/learning/records')
+}
+
+export async function deleteLearningRecord(id: string) {
+  return fetchAPI<Record<string, never>>(`/api/v1/knowledge/learning/records/${id}`, {
+    method: 'DELETE',
+  })
+}
+
 // Health
 export async function getHealth() {
   return fetchAPI<{

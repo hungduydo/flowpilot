@@ -41,7 +41,7 @@ class WorkflowGenerator:
         conversation_history: list[dict] | None = None,
         provider: str | None = None,
         model: str | None = None,
-    ) -> dict[str, Any]:
+    ) -> tuple[dict[str, Any], list[dict]]:
         """
         Generate a complete n8n workflow from a natural language description.
 
@@ -51,7 +51,7 @@ class WorkflowGenerator:
             conversation_history: Previous chat messages for context
 
         Returns:
-            Valid n8n workflow JSON dict
+            Tuple of (valid n8n workflow JSON dict, list of auto-fixes applied)
 
         Raises:
             WorkflowGenerationError: If generation fails after all retries
@@ -73,7 +73,7 @@ class WorkflowGenerator:
                 )
 
                 # Post-process
-                workflow_json = self._post_process(workflow_json)
+                workflow_json, fixes = self._post_process(workflow_json)
 
                 # Validate
                 errors = self.validator.validate(workflow_json)
@@ -91,8 +91,9 @@ class WorkflowGenerator:
                     attempt=attempt,
                     name=workflow_json.get("name"),
                     num_nodes=len(workflow_json.get("nodes", [])),
+                    fixes_applied=len(fixes),
                 )
-                return workflow_json
+                return workflow_json, fixes
 
             except Exception as e:
                 logger.error("Generation error", attempt=attempt, error=str(e))
@@ -208,17 +209,33 @@ class WorkflowGenerator:
         "createMessage": "send",
     }
 
-    def _fix_node_parameters(self, node: dict[str, Any]) -> None:
-        """Fix common LLM mistakes in node parameters for specific node types."""
+    def _fix_node_parameters(self, node: dict[str, Any]) -> list[dict]:
+        """Fix common LLM mistakes in node parameters for specific node types.
+
+        Returns a list of fix records describing what was corrected.
+        """
+        fixes: list[dict] = []
         node_type = node.get("type", "")
         params = node.get("parameters", {})
         if not isinstance(params, dict):
+            fixes.append({
+                "node_type": node_type,
+                "description": f"Parameters was {type(params).__name__} instead of dict",
+                "fix_data": {"wrong": str(params), "correct": "{}"},
+            })
             params = {}
             node["parameters"] = params
 
         # ── 1. Enforce typeVersion from registry ──
         node_def = get_node(node_type)
         if node_def:
+            old_version = node.get("typeVersion")
+            if old_version != node_def.type_version:
+                fixes.append({
+                    "node_type": node_type,
+                    "description": f"typeVersion corrected from {old_version} to {node_def.type_version}",
+                    "fix_data": {"wrong": old_version, "correct": node_def.type_version},
+                })
             node["typeVersion"] = node_def.type_version
 
         # ── 2. Schedule Trigger: fix cron string → proper interval object ──
@@ -229,13 +246,34 @@ class WorkflowGenerator:
             if rule is None or (isinstance(rule, dict) and not rule) or rule == {}:
                 if cron_source and isinstance(cron_source, str):
                     interval = self._parse_cron_to_interval(cron_source)
+                    fixes.append({
+                        "node_type": node_type,
+                        "description": f"Schedule Trigger: converted cron '{cron_source}' to interval object",
+                        "fix_data": {"wrong": cron_source, "correct": interval},
+                    })
                 else:
                     interval = {"field": "minutes", "minutesInterval": 5}
+                    if rule is not None:
+                        fixes.append({
+                            "node_type": node_type,
+                            "description": "Schedule Trigger: empty rule replaced with default 5-min interval",
+                            "fix_data": {"wrong": rule, "correct": interval},
+                        })
                 params["rule"] = {"interval": [interval]}
             elif isinstance(rule, str):
                 interval = self._parse_cron_to_interval(rule)
+                fixes.append({
+                    "node_type": node_type,
+                    "description": f"Schedule Trigger: converted cron string rule '{rule}' to interval object",
+                    "fix_data": {"wrong": rule, "correct": {"interval": [interval]}},
+                })
                 params["rule"] = {"interval": [interval]}
             elif isinstance(rule, dict) and "interval" not in rule:
+                fixes.append({
+                    "node_type": node_type,
+                    "description": "Schedule Trigger: rule dict missing 'interval' key, replaced with default",
+                    "fix_data": {"wrong": rule, "correct": {"interval": [{"field": "minutes", "minutesInterval": 5}]}},
+                })
                 params["rule"] = {"interval": [{"field": "minutes", "minutesInterval": 5}]}
 
         # ── 3. If node: fix conditions format ──
@@ -264,6 +302,11 @@ class WorkflowGenerator:
                 needs_fix = True
 
             if needs_fix:
+                fixes.append({
+                    "node_type": node_type,
+                    "description": f"If node: conditions format was invalid ({type(conditions).__name__}), replaced with default structure",
+                    "fix_data": {"wrong": str(conditions)[:200], "correct": "standard n8n conditions object"},
+                })
                 params["conditions"] = {
                     "options": {"caseSensitive": True, "leftValue": ""},
                     "conditions": [
@@ -279,10 +322,20 @@ class WorkflowGenerator:
         # ── 4. HTTP Request: ensure url exists ──
         if node_type == "n8n-nodes-base.httpRequest":
             if "url" not in params:
+                fixes.append({
+                    "node_type": node_type,
+                    "description": "HTTP Request: missing 'url' parameter, added placeholder",
+                    "fix_data": {"wrong": None, "correct": "https://example.com"},
+                })
                 params["url"] = "https://example.com"
             # Normalize method field
             method = params.pop("httpMethod", None) or params.pop("requestMethod", None)
             if method and "method" not in params:
+                fixes.append({
+                    "node_type": node_type,
+                    "description": f"HTTP Request: renamed httpMethod/requestMethod to 'method'",
+                    "fix_data": {"wrong": "httpMethod/requestMethod", "correct": "method"},
+                })
                 params["method"] = method.upper()
 
         # ── 5. Webhook: ensure path + httpMethod ──
@@ -298,15 +351,32 @@ class WorkflowGenerator:
             # Fix known wrong values
             res = params.get("resource", "")
             if isinstance(res, str) and res in self.RESOURCE_OP_FIXES:
-                params["resource"] = self.RESOURCE_OP_FIXES[res]
+                correct_res = self.RESOURCE_OP_FIXES[res]
+                fixes.append({
+                    "node_type": node_type,
+                    "description": f"Resource corrected from '{res}' to '{correct_res}'",
+                    "fix_data": {"wrong": res, "correct": correct_res},
+                })
+                params["resource"] = correct_res
 
             op = params.get("operation", "")
             if isinstance(op, str) and op in self.RESOURCE_OP_FIXES:
-                params["operation"] = self.RESOURCE_OP_FIXES[op]
+                correct_op = self.RESOURCE_OP_FIXES[op]
+                fixes.append({
+                    "node_type": node_type,
+                    "description": f"Operation corrected from '{op}' to '{correct_op}'",
+                    "fix_data": {"wrong": op, "correct": correct_op},
+                })
+                params["operation"] = correct_op
 
             # Fill missing resource/operation from defaults
             for key, default_val in defaults.items():
                 if key not in params or not params[key]:
+                    fixes.append({
+                        "node_type": node_type,
+                        "description": f"Missing '{key}' filled with default '{default_val}'",
+                        "fix_data": {"wrong": None, "correct": default_val},
+                    })
                     params[key] = default_val
 
         # ── 7. Code node: ensure jsCode field exists ──
@@ -315,6 +385,11 @@ class WorkflowGenerator:
                 # Check if LLM put code in a different field
                 code = params.pop("code", None) or params.pop("script", None)
                 if code:
+                    fixes.append({
+                        "node_type": node_type,
+                        "description": "Code node: renamed 'code'/'script' field to 'jsCode'",
+                        "fix_data": {"wrong": "code/script", "correct": "jsCode"},
+                    })
                     params["jsCode"] = code
                 else:
                     params["jsCode"] = "// Add your code here\nreturn items;"
@@ -336,6 +411,7 @@ class WorkflowGenerator:
                 }
 
         node["parameters"] = params
+        return fixes
 
     @staticmethod
     def _parse_operator_string(op_str: str) -> dict[str, str]:
@@ -394,8 +470,14 @@ class WorkflowGenerator:
 
         return {"field": "minutes", "minutesInterval": 5}
 
-    def _post_process(self, workflow_json: dict[str, Any]) -> dict[str, Any]:
-        """Post-process the generated workflow JSON to ensure n8n API compatibility."""
+    def _post_process(self, workflow_json: dict[str, Any]) -> tuple[dict[str, Any], list[dict]]:
+        """Post-process the generated workflow JSON to ensure n8n API compatibility.
+
+        Returns:
+            Tuple of (processed_workflow, list_of_fixes_applied).
+        """
+        all_fixes: list[dict] = []
+
         # Ensure all nodes have UUIDs and webhook nodes have webhookId
         for node in workflow_json.get("nodes", []):
             if not node.get("id") or len(node["id"]) < 10:
@@ -419,11 +501,17 @@ class WorkflowGenerator:
         # Clean nodes: fix parameters, remove invalid keys and null values
         for node in workflow_json.get("nodes", []):
             # Fix common LLM parameter mistakes
-            self._fix_node_parameters(node)
+            fixes = self._fix_node_parameters(node)
+            all_fixes.extend(fixes)
 
             # Remove keys not accepted by n8n API
             extra_keys = [k for k in node if k not in self.VALID_NODE_KEYS]
             for k in extra_keys:
+                all_fixes.append({
+                    "node_type": node.get("type", "unknown"),
+                    "description": f"Stripped invalid node key '{k}'",
+                    "fix_data": {"wrong": k, "correct": None},
+                })
                 del node[k]
 
             # Remove null optional fields for cleaner JSON
@@ -447,6 +535,11 @@ class WorkflowGenerator:
                     true_branch = conn_data.get("true", [[]])[0] if conn_data.get("true") else []
                     false_branch = conn_data.get("false", [[]])[0] if conn_data.get("false") else []
                     main_outputs = [true_branch, false_branch]
+                    all_fixes.append({
+                        "node_type": None,
+                        "description": f"Connection '{source_name}': converted true/false keys to main[0]/main[1]",
+                        "fix_data": {"wrong": "true/false keys", "correct": "main array"},
+                    })
 
                 # Remove "else" connections (not valid in n8n)
                 cleaned_connections[source_name] = {"main": main_outputs}
@@ -459,12 +552,15 @@ class WorkflowGenerator:
             if v.get("main") and any(outputs for outputs in v["main"])
         }
 
-        return workflow_json
+        return workflow_json, all_fixes
 
-    async def generate_simple(self, user_description: str) -> dict[str, Any]:
+    async def generate_simple(self, user_description: str) -> tuple[dict[str, Any], list[dict]]:
         """
         Simplified single-phase generation for simple workflows.
         Skips the planning phase for speed.
+
+        Returns:
+            Tuple of (valid n8n workflow JSON dict, list of auto-fixes applied)
         """
         system_prompt = build_create_prompt()
 
@@ -478,13 +574,13 @@ class WorkflowGenerator:
         })
 
         workflow_json = await structured_output(messages, temperature=0.3)
-        workflow_json = self._post_process(workflow_json)
+        workflow_json, fixes = self._post_process(workflow_json)
 
         errors = self.validator.validate(workflow_json)
         if errors:
             raise WorkflowGenerationError(f"Validation failed: {errors}")
 
-        return workflow_json
+        return workflow_json, fixes
 
 
 class WorkflowGenerationError(Exception):

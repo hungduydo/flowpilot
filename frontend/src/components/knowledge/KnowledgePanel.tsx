@@ -7,7 +7,10 @@ import {
   createKnowledgeNote,
   deleteKnowledgeNote,
   updateKnowledgeNote,
+  getLearningRecords,
+  deleteLearningRecord,
   KnowledgeNote,
+  LearningRecord,
 } from '@/lib/api'
 import {
   Plus,
@@ -18,6 +21,10 @@ import {
   Edit3,
   ToggleLeft,
   ToggleRight,
+  Brain,
+  Zap,
+  UserPen,
+  AlertTriangle,
 } from 'lucide-react'
 import { formatTimestamp } from '@/lib/utils'
 
@@ -40,6 +47,10 @@ export function KnowledgePanel() {
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editContent, setEditContent] = useState('')
+  const [activeTab, setActiveTab] = useState<'notes' | 'learning'>('notes')
+  const [learningRecords, setLearningRecords] = useState<LearningRecord[]>([])
+  const [learningLoading, setLearningLoading] = useState(false)
+  const [confirmDeleteLearningId, setConfirmDeleteLearningId] = useState<string | null>(null)
 
   const loadNotes = async () => {
     setLoading(true)
@@ -53,9 +64,51 @@ export function KnowledgePanel() {
     }
   }
 
+  const loadLearningRecords = async () => {
+    setLearningLoading(true)
+    try {
+      const data = await getLearningRecords()
+      setLearningRecords(data)
+    } catch {
+      toast.addToast('error', 'Failed to load learning records')
+    } finally {
+      setLearningLoading(false)
+    }
+  }
+
+  const handleDeleteLearning = async (id: string) => {
+    try {
+      await deleteLearningRecord(id)
+      toast.addToast('success', 'Learning record deleted')
+      loadLearningRecords()
+    } catch {
+      toast.addToast('error', 'Failed to delete record')
+    }
+    setConfirmDeleteLearningId(null)
+  }
+
+  const recordTypeBadge = (type: string) => {
+    switch (type) {
+      case 'auto_fix':
+        return { color: 'text-blue-400 bg-blue-400/10', icon: Zap, label: 'Auto-fix' }
+      case 'user_edit':
+        return { color: 'text-purple-400 bg-purple-400/10', icon: UserPen, label: 'User edit' }
+      case 'validation_error':
+        return { color: 'text-red-400 bg-red-400/10', icon: AlertTriangle, label: 'Validation' }
+      default:
+        return { color: 'text-surface-400 bg-surface-800', icon: Brain, label: type }
+    }
+  }
+
   useEffect(() => {
     loadNotes()
   }, [])
+
+  useEffect(() => {
+    if (activeTab === 'learning') {
+      loadLearningRecords()
+    }
+  }, [activeTab])
 
   const handleCreate = async () => {
     if (!newContent.trim()) return
@@ -120,6 +173,119 @@ export function KnowledgePanel() {
 
   return (
     <div className="p-2 space-y-2">
+      {/* Tab switcher */}
+      <div className="flex rounded-lg bg-surface-800/50 p-0.5">
+        <button
+          onClick={() => setActiveTab('notes')}
+          className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${
+            activeTab === 'notes'
+              ? 'bg-surface-700 text-surface-200'
+              : 'text-surface-500 hover:text-surface-300'
+          }`}
+        >
+          <BookOpen size={12} />
+          Notes
+        </button>
+        <button
+          onClick={() => setActiveTab('learning')}
+          className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${
+            activeTab === 'learning'
+              ? 'bg-surface-700 text-surface-200'
+              : 'text-surface-500 hover:text-surface-300'
+          }`}
+        >
+          <Brain size={12} />
+          Learning
+          {learningRecords.length > 0 && (
+            <span className="ml-0.5 px-1.5 py-0.5 rounded-full bg-primary-600/20 text-primary-400 text-[10px]">
+              {learningRecords.length}
+            </span>
+          )}
+        </button>
+      </div>
+
+      {activeTab === 'learning' ? (
+        /* ── Learning Records Tab ── */
+        <div className="space-y-1">
+          {learningLoading ? (
+            <div className="space-y-2 py-4">
+              {[1, 2, 3].map((i) => (
+                <div key={i} className="animate-pulse bg-surface-800 rounded-lg h-14" />
+              ))}
+            </div>
+          ) : learningRecords.length === 0 ? (
+            <div className="text-center py-8">
+              <Brain size={24} className="mx-auto text-surface-600 mb-2" />
+              <p className="text-surface-500 text-xs">No learned corrections yet</p>
+              <p className="text-surface-600 text-[11px] mt-1">
+                Corrections are auto-captured when workflows are generated
+              </p>
+            </div>
+          ) : (
+            learningRecords.map((record) => {
+              const badge = recordTypeBadge(record.record_type)
+              const BadgeIcon = badge.icon
+              return (
+                <div
+                  key={record.id}
+                  className="group rounded-lg px-3 py-2 bg-surface-800/30 hover:bg-surface-800/60 transition-colors"
+                >
+                  <div className="flex items-start gap-2">
+                    <p className="flex-1 text-xs text-surface-300 leading-relaxed">
+                      {record.description}
+                    </p>
+                    {confirmDeleteLearningId === record.id ? (
+                      <div className="flex items-center gap-0.5 shrink-0">
+                        <button
+                          onClick={() => handleDeleteLearning(record.id)}
+                          className="p-1 text-red-400 hover:text-red-300"
+                        >
+                          <Check size={12} />
+                        </button>
+                        <button
+                          onClick={() => setConfirmDeleteLearningId(null)}
+                          className="p-1 text-surface-500 hover:text-surface-300"
+                        >
+                          <X size={12} />
+                        </button>
+                      </div>
+                    ) : (
+                      <button
+                        onClick={() => setConfirmDeleteLearningId(record.id)}
+                        className="p-1 shrink-0 opacity-0 group-hover:opacity-100 hover:text-red-400 transition-all"
+                        title="Delete"
+                      >
+                        <Trash2 size={11} />
+                      </button>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-2 mt-1">
+                    <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium inline-flex items-center gap-1 ${badge.color}`}>
+                      <BadgeIcon size={9} />
+                      {badge.label}
+                    </span>
+                    {record.node_type && (
+                      <span className="text-[10px] px-1.5 py-0.5 rounded-full font-medium text-emerald-400 bg-emerald-400/10">
+                        {record.node_type.replace('n8n-nodes-base.', '')}
+                      </span>
+                    )}
+                    <span className="text-[10px] text-surface-600">
+                      {record.frequency}x
+                    </span>
+                    {record.created_at && (
+                      <span className="text-[10px] text-surface-600">
+                        {formatTimestamp(record.created_at)}
+                      </span>
+                    )}
+                  </div>
+                </div>
+              )
+            })
+          )}
+        </div>
+      ) : (
+      /* ── Notes Tab ── */
+      <>
       {/* Add button */}
       <button
         onClick={() => setShowForm(!showForm)}
@@ -280,6 +446,8 @@ export function KnowledgePanel() {
             </div>
           ))}
         </div>
+      )}
+      </>
       )}
     </div>
   )

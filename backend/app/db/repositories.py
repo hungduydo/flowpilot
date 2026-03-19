@@ -7,7 +7,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.db.models import Conversation, Message, Workflow, WorkflowVersion, KnowledgeNote
+from app.db.models import Conversation, Message, Workflow, WorkflowVersion, KnowledgeNote, LearningRecord
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -290,3 +290,80 @@ class KnowledgeNoteRepository:
             .order_by(KnowledgeNote.created_at.desc())
         )
         return list(result.scalars().all())
+
+
+# ═══════════════════════════════════════════════════════════════════
+#  Learning Records
+# ═══════════════════════════════════════════════════════════════════
+
+
+class LearningRepository:
+
+    @staticmethod
+    async def record_fix(
+        session: AsyncSession,
+        record_type: str,
+        node_type: str | None,
+        description: str,
+        fix_data: dict | None = None,
+    ) -> LearningRecord:
+        """Record a fix. If same description exists, increment frequency."""
+        result = await session.execute(
+            select(LearningRecord).where(
+                LearningRecord.description == description
+            )
+        )
+        existing = result.scalar_one_or_none()
+        if existing:
+            existing.frequency += 1
+            await session.flush()
+            return existing
+
+        record = LearningRecord(
+            record_type=record_type,
+            node_type=node_type,
+            description=description,
+            fix_data=fix_data,
+        )
+        session.add(record)
+        await session.flush()
+        return record
+
+    @staticmethod
+    async def get_relevant(
+        session: AsyncSession,
+        node_types: list[str] | None = None,
+        limit: int = 20,
+    ) -> list[LearningRecord]:
+        """Get most frequent/relevant learning records."""
+        query = (
+            select(LearningRecord)
+            .order_by(LearningRecord.frequency.desc())
+            .limit(limit)
+        )
+        if node_types:
+            query = query.where(
+                (LearningRecord.node_type.in_(node_types))
+                | (LearningRecord.node_type.is_(None))
+            )
+        result = await session.execute(query)
+        return list(result.scalars().all())
+
+    @staticmethod
+    async def list_all(session: AsyncSession) -> list[LearningRecord]:
+        result = await session.execute(
+            select(LearningRecord).order_by(LearningRecord.frequency.desc())
+        )
+        return list(result.scalars().all())
+
+    @staticmethod
+    async def delete(session: AsyncSession, record_id: uuid.UUID) -> bool:
+        result = await session.execute(
+            select(LearningRecord).where(LearningRecord.id == record_id)
+        )
+        record = result.scalar_one_or_none()
+        if record:
+            await session.delete(record)
+            await session.flush()
+            return True
+        return False

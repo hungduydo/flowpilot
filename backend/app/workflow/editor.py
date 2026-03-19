@@ -86,7 +86,7 @@ class WorkflowEditor:
                 # Continue with other operations
 
         # Post-process (typeVersion enforcement, resource/operation fixes, etc.)
-        modified = self._generator._post_process(modified)
+        modified, _fixes = self._generator._post_process(modified)
 
         # Validate result
         errors = self.validator.validate(modified)

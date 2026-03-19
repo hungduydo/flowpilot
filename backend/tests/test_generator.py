@@ -32,7 +32,7 @@ class TestPostProcess:
             "connections": {},
             "settings": {"executionOrder": "v1"},
         }
-        result = generator._post_process(wf)
+        result, fixes = generator._post_process(wf)
         node = result["nodes"][0]
         assert "decision_node" not in node
         assert "extra_field" not in node
@@ -40,6 +40,9 @@ class TestPostProcess:
         assert "id" in node
         assert "name" in node
         assert "type" in node
+        # Fixes should include stripped keys
+        stripped_descs = [f["description"] for f in fixes if "Stripped" in f["description"]]
+        assert len(stripped_descs) >= 2
 
     def test_converts_true_false_connection_keys(self, generator):
         wf = {
@@ -78,7 +81,7 @@ class TestPostProcess:
             },
             "settings": {"executionOrder": "v1"},
         }
-        result = generator._post_process(wf)
+        result, fixes = generator._post_process(wf)
         if_conn = result["connections"]["If"]
         assert "main" in if_conn
         assert "true" not in if_conn
@@ -102,7 +105,7 @@ class TestPostProcess:
             "connections": {},
             "settings": {"executionOrder": "v1"},
         }
-        result = generator._post_process(wf)
+        result, fixes = generator._post_process(wf)
         webhook_node = result["nodes"][0]
         assert "webhookId" in webhook_node
         assert len(webhook_node["webhookId"]) > 10  # Valid UUID
@@ -122,7 +125,7 @@ class TestPostProcess:
             "connections": {},
             "settings": {"executionOrder": "v1"},
         }
-        result = generator._post_process(wf)
+        result, fixes = generator._post_process(wf)
         assert "id" in result["nodes"][0]
         # Verify it's a valid UUID
         uuid.UUID(result["nodes"][0]["id"])
@@ -155,7 +158,7 @@ class TestPostProcess:
             },
             "settings": {"executionOrder": "v1"},
         }
-        result = generator._post_process(wf)
+        result, fixes = generator._post_process(wf)
         webhook = next(n for n in result["nodes"] if n["type"] == "n8n-nodes-base.webhook")
         assert webhook["parameters"]["responseMode"] == "responseNode"
 
@@ -204,9 +207,11 @@ class TestFixNodeParameters:
                 "channel": "#general",
             },
         }
-        generator._fix_node_parameters(node)
+        fixes = generator._fix_node_parameters(node)
         assert node["parameters"]["resource"] == "message"
         assert node["parameters"]["operation"] == "send"
+        # Should have recorded fixes for resource and operation
+        assert len(fixes) >= 2
 
     def test_fixes_if_node_string_conditions(self, generator):
         node = {

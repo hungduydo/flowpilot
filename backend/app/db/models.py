@@ -123,3 +123,27 @@ class KnowledgeNote(Base):
     updated_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), onupdate=func.now(), nullable=True
     )
+
+
+class LearningRecord(Base):
+    """Auto-captured corrections from post-processing and user edits."""
+    __tablename__ = "learning_records"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    record_type: Mapped[str] = mapped_column(
+        String(30), nullable=False
+    )  # "auto_fix", "user_edit", "validation_error"
+    node_type: Mapped[str | None] = mapped_column(
+        String(100), nullable=True
+    )  # e.g., "n8n-nodes-base.slack"
+    description: Mapped[str] = mapped_column(Text, nullable=False)
+    fix_data: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+    frequency: Mapped[int] = mapped_column(default=1, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), onupdate=func.now(), nullable=True
+    )
