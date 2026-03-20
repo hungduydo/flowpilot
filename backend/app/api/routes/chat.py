@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.conversation_engine import conversation_engine
 from app.core.n8n_client import N8nClientError
+from app.core.prompt_trace import clear_trace, get_traces, init_trace
 from app.db.session import get_db
 from app.schemas.chat import ChatRequest, ChatResponse, WorkflowInfo
 from app.workflow.generator import WorkflowGenerationError
@@ -35,6 +36,11 @@ async def chat(
     and automatically deploys them to n8n server.
     Conversations are persisted to the database.
     """
+    # Enable prompt tracing when debug=true
+    logger.info("Chat request", debug=request.debug, has_workflow_id=bool(request.workflow_id))
+    if request.debug:
+        init_trace()
+
     try:
         # 1. Get or create conversation
         conversation = await conversation_engine.get_or_create_conversation(
@@ -65,11 +71,15 @@ async def chat(
                 validation_errors=wf.get("validation_errors", []),
             )
 
+        traces = get_traces() if request.debug else None
+        logger.info("Chat response", intent=result["intent"], trace_count=len(traces) if traces else 0, debug=request.debug)
+
         return ChatResponse(
             message=result["message"],
             conversation_id=result["conversation_id"],
             intent=result["intent"],
             workflow=workflow_info,
+            prompt_trace=traces,
         )
 
     except WorkflowGenerationError as e:
@@ -78,6 +88,7 @@ async def chat(
             message=f"Xin lỗi, tôi không thể tạo workflow. Lỗi: {str(e)}\n\nHãy thử mô tả lại yêu cầu rõ hơn.",
             conversation_id=request.conversation_id or "",
             intent="CREATE_WORKFLOW",
+            prompt_trace=get_traces() if request.debug else None,
         )
     except N8nClientError as e:
         logger.error("n8n API error", error=str(e))
@@ -85,7 +96,10 @@ async def chat(
             message=f"Workflow đã được tạo nhưng không thể deploy lên n8n: {e.detail}",
             conversation_id=request.conversation_id or "",
             intent="CREATE_WORKFLOW",
+            prompt_trace=get_traces() if request.debug else None,
         )
     except Exception as e:
         logger.exception("Unexpected error in chat", error=str(e))
         raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        clear_trace()

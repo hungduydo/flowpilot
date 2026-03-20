@@ -61,6 +61,7 @@ async def classify_intent(
         max_tokens=20,
         provider=provider,
         model=model,
+        _trace_step="intent_classification",
     )
     intent = result.strip().upper()
 
@@ -691,6 +692,7 @@ class ConversationEngine:
 
         response_text = await chat_completion(
             context, temperature=0.7, provider=provider, model=model,
+            _trace_step="chat_response",
         )
 
         return {"message": response_text}

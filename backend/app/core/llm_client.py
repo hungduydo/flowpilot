@@ -13,6 +13,7 @@ Provider selection:
 """
 
 import json
+import time
 from typing import Any, Literal
 
 import httpx
@@ -21,6 +22,7 @@ from anthropic import AsyncAnthropic
 from openai import AsyncOpenAI
 
 from app.config import settings
+from app.core.prompt_trace import TraceEntry, get_last_token_usage, record_trace, set_last_token_usage
 from app.core.retry import llm_retry
 from app.workflow.schema import WORKFLOW_JSON_SCHEMA
 
@@ -147,8 +149,10 @@ async def _chat_openai(
         max_tokens=max_tokens,
     )
     content = response.choices[0].message.content or ""
+    usage = response.usage
+    set_last_token_usage({"input_tokens": usage.prompt_tokens, "output_tokens": usage.completion_tokens, "total_tokens": usage.total_tokens} if usage else {})
     logger.debug("Chat [openai]", model=model,
-                 tokens=response.usage.total_tokens if response.usage else 0)
+                 tokens=usage.total_tokens if usage else 0)
     return content
 
 
@@ -166,6 +170,7 @@ async def _chat_anthropic(
         messages=messages,
     )
     content = response.content[0].text if response.content else ""
+    set_last_token_usage({"input_tokens": response.usage.input_tokens, "output_tokens": response.usage.output_tokens, "total_tokens": response.usage.input_tokens + response.usage.output_tokens})
     logger.debug("Chat [anthropic]", model=model,
                  input_tokens=response.usage.input_tokens,
                  output_tokens=response.usage.output_tokens)
@@ -190,8 +195,10 @@ async def _chat_ollama(
         max_tokens=max_tokens,
     )
     content = response.choices[0].message.content or ""
+    usage = response.usage
+    set_last_token_usage({"input_tokens": usage.prompt_tokens if usage else 0, "output_tokens": usage.completion_tokens if usage else 0, "total_tokens": usage.total_tokens if usage else 0})
     logger.debug("Chat [ollama]", model=model,
-                 tokens=response.usage.total_tokens if response.usage else 0)
+                 tokens=usage.total_tokens if usage else 0)
     return content
 
 
@@ -202,6 +209,8 @@ async def chat_completion(
     max_tokens: int | None = None,
     system: str | None = None,
     provider: str | None = None,
+    *,
+    _trace_step: str = "chat_completion",
 ) -> str:
     """
     Regular chat completion. Routes to the active or specified provider.
@@ -219,9 +228,25 @@ async def chat_completion(
         "anthropic": _chat_anthropic,
         "ollama": _chat_ollama,
     }
-    return await dispatch[resolved_provider](
+
+    t0 = time.perf_counter()
+    result = await dispatch[resolved_provider](
         chat_messages, system_text, resolved_model, temperature, resolved_max_tokens
     )
+    duration_ms = (time.perf_counter() - t0) * 1000
+
+    record_trace(TraceEntry(
+        step=_trace_step,
+        provider=resolved_provider,
+        model=resolved_model,
+        temperature=temperature,
+        messages=messages,
+        response_preview=result[:500] if result else "",
+        token_usage=get_last_token_usage(),
+        duration_ms=round(duration_ms, 1),
+    ))
+
+    return result
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -350,8 +375,10 @@ async def _structured_openai(
         response_format={"type": "json_object"},
     )
     content = response.choices[0].message.content or ""
+    usage = response.usage
+    set_last_token_usage({"input_tokens": usage.prompt_tokens, "output_tokens": usage.completion_tokens, "total_tokens": usage.total_tokens} if usage else {})
     logger.debug("Structured output [openai]", model=model,
-                 tokens=response.usage.total_tokens if response.usage else 0)
+                 tokens=usage.total_tokens if usage else 0)
     return json.loads(content)
 
 
@@ -380,6 +407,8 @@ async def _structured_anthropic(
         tools=[workflow_tool],
         tool_choice={"type": "tool", "name": "create_n8n_workflow"},
     )
+
+    set_last_token_usage({"input_tokens": response.usage.input_tokens, "output_tokens": response.usage.output_tokens, "total_tokens": response.usage.input_tokens + response.usage.output_tokens})
 
     for block in response.content:
         if block.type == "tool_use" and block.name == "create_n8n_workflow":
@@ -485,10 +514,12 @@ async def _structured_ollama(
         response_format={"type": "json_object"},
     )
     content = response.choices[0].message.content or ""
+    usage = response.usage
+    set_last_token_usage({"input_tokens": usage.prompt_tokens if usage else 0, "output_tokens": usage.completion_tokens if usage else 0, "total_tokens": usage.total_tokens if usage else 0})
     logger.info("Ollama raw response", model=model,
                 content_length=len(content),
                 content_preview=content[:300],
-                tokens=response.usage.total_tokens if response.usage else 0)
+                tokens=usage.total_tokens if usage else 0)
 
     result = _extract_json(content)
     return result
@@ -499,6 +530,8 @@ async def structured_output(
     model: str | None = None,
     temperature: float = 0.3,
     provider: str | None = None,
+    *,
+    _trace_step: str = "structured_output",
 ) -> dict[str, Any]:
     """Generate structured JSON output for n8n workflow."""
     resolved_provider = _resolve_provider(provider)
@@ -512,9 +545,25 @@ async def structured_output(
         "anthropic": _structured_anthropic,
         "ollama": _structured_ollama,
     }
-    return await dispatch[resolved_provider](
+
+    t0 = time.perf_counter()
+    result = await dispatch[resolved_provider](
         chat_messages, system_text, resolved_model, temperature
     )
+    duration_ms = (time.perf_counter() - t0) * 1000
+
+    record_trace(TraceEntry(
+        step=_trace_step,
+        provider=resolved_provider,
+        model=resolved_model,
+        temperature=temperature,
+        messages=messages,
+        response_preview=json.dumps(result, ensure_ascii=False)[:500] if result else "",
+        token_usage=get_last_token_usage(),
+        duration_ms=round(duration_ms, 1),
+    ))
+
+    return result
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -651,8 +700,10 @@ async def _fc_openai(
                 args = json.loads(args)
             tool_calls.append({"name": tc.function.name, "arguments": args})
 
+    usage = response.usage
+    set_last_token_usage({"input_tokens": usage.prompt_tokens, "output_tokens": usage.completion_tokens, "total_tokens": usage.total_tokens} if usage else {})
     logger.debug("Function calling [openai]", model=model, num_tool_calls=len(tool_calls),
-                 tokens=response.usage.total_tokens if response.usage else 0)
+                 tokens=usage.total_tokens if usage else 0)
     return tool_calls
 
 
@@ -672,6 +723,7 @@ async def _fc_anthropic(
     for block in response.content:
         if block.type == "tool_use":
             tool_calls.append({"name": block.name, "arguments": block.input})
+    set_last_token_usage({"input_tokens": response.usage.input_tokens, "output_tokens": response.usage.output_tokens, "total_tokens": response.usage.input_tokens + response.usage.output_tokens})
     logger.debug("Function calling [anthropic]", model=model, num_tool_calls=len(tool_calls),
                  input_tokens=response.usage.input_tokens, output_tokens=response.usage.output_tokens)
     return tool_calls
@@ -703,6 +755,8 @@ async def _fc_ollama(
                 if isinstance(args, str):
                     args = json.loads(args)
                 tool_calls.append({"name": tc.function.name, "arguments": args})
+        usage = response.usage
+        set_last_token_usage({"input_tokens": usage.prompt_tokens if usage else 0, "output_tokens": usage.completion_tokens if usage else 0, "total_tokens": usage.total_tokens if usage else 0})
         logger.debug("Function calling [ollama]", model=model, num_tool_calls=len(tool_calls))
         return tool_calls
     except Exception as e:
@@ -759,6 +813,8 @@ async def _fc_ollama_fallback(
     if not isinstance(result, list):
         result = [result]
 
+    usage = response.usage
+    set_last_token_usage({"input_tokens": usage.prompt_tokens if usage else 0, "output_tokens": usage.completion_tokens if usage else 0, "total_tokens": usage.total_tokens if usage else 0})
     logger.debug("Function calling [ollama/fallback]", model=model, num_tool_calls=len(result))
     return result
 
@@ -768,6 +824,8 @@ async def function_calling(
     model: str | None = None,
     temperature: float = 0.3,
     provider: str | None = None,
+    *,
+    _trace_step: str = "function_calling",
 ) -> list[dict[str, Any]]:
     """
     Use LLM for workflow edit operations (tool use).
@@ -784,9 +842,25 @@ async def function_calling(
         "anthropic": _fc_anthropic,
         "ollama": _fc_ollama,
     }
-    return await dispatch[resolved_provider](
+
+    t0 = time.perf_counter()
+    result = await dispatch[resolved_provider](
         chat_messages, system_text, resolved_model, temperature
     )
+    duration_ms = (time.perf_counter() - t0) * 1000
+
+    record_trace(TraceEntry(
+        step=_trace_step,
+        provider=resolved_provider,
+        model=resolved_model,
+        temperature=temperature,
+        messages=messages,
+        response_preview=json.dumps(result, ensure_ascii=False)[:500] if result else "[]",
+        token_usage=get_last_token_usage(),
+        duration_ms=round(duration_ms, 1),
+    ))
+
+    return result
 
 
 # ═══════════════════════════════════════════════════════════════════

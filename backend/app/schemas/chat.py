@@ -33,6 +33,10 @@ class ChatRequest(BaseModel):
         default=None,
         description="Model override, e.g. 'gpt-4o', 'claude-sonnet-4-20250514', 'qwen2.5:14b'. Uses default if null.",
     )
+    debug: bool = Field(
+        default=False,
+        description="If true, return LLM prompt traces in the response for debugging.",
+    )
 
 
 class WorkflowInfo(BaseModel):
@@ -57,4 +61,8 @@ class ChatResponse(BaseModel):
     workflow: Optional[WorkflowInfo] = Field(
         default=None,
         description="Generated/edited workflow info (if applicable)",
+    )
+    prompt_trace: Optional[list[dict[str, Any]]] = Field(
+        default=None,
+        description="LLM prompt traces for debugging (only present when debug=true in request).",
     )

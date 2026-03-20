@@ -1,3 +1,15 @@
+export interface PromptTraceEntry {
+  step: string
+  provider: string
+  model: string
+  temperature: number
+  messages: Array<{ role: string; content: string }>
+  response_preview: string
+  token_usage: Record<string, number>
+  duration_ms: number
+  error: string | null
+}
+
 export interface Message {
   id: string
   role: 'user' | 'assistant'
@@ -6,6 +18,7 @@ export interface Message {
   n8n_url?: string | null
   intent?: string
   created_at: string
+  prompt_trace?: PromptTraceEntry[] | null
 }
 
 export interface Conversation {
@@ -41,6 +54,7 @@ export interface ChatResponse {
   n8n_url?: string | null
   conversation_id?: string
   message_id?: string
+  prompt_trace?: PromptTraceEntry[] | null
 }
 
 export interface N8nWorkflow {

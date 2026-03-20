@@ -128,7 +128,7 @@ class WorkflowGenerator:
             "content": f"Create a plan for this workflow:\n\n{user_description}",
         })
 
-        return await chat_completion(messages, temperature=0.5, provider=provider, model=model)
+        return await chat_completion(messages, temperature=0.5, provider=provider, model=model, _trace_step="phase1_plan")
 
     async def _phase2_generate(
         self,
@@ -167,7 +167,7 @@ class WorkflowGenerator:
 
         messages.append({"role": "user", "content": generation_prompt})
 
-        return await structured_output(messages, temperature=0.3, provider=provider, model=model)
+        return await structured_output(messages, temperature=0.3, provider=provider, model=model, _trace_step="phase2_generate")
 
     # Allowed keys for n8n node objects
     VALID_NODE_KEYS = {

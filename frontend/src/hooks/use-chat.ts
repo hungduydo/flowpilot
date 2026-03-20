@@ -89,6 +89,7 @@ export function useChat() {
         store.activeWorkflow?.id || undefined,
         store.selectedProvider,
         store.selectedModel,
+        store.debugMode,
       )
 
       // Set conversation ID if new
@@ -115,6 +116,11 @@ export function useChat() {
         })
       }
 
+      // Debug: log trace data from API response
+      if (store.debugMode) {
+        console.log('[FlowPilot Debug] prompt_trace:', response.prompt_trace?.length ?? 'null', response.prompt_trace)
+      }
+
       const assistantMsg: Message = {
         id: response.message_id || `msg-${Date.now()}`,
         role: 'assistant',
@@ -123,6 +129,7 @@ export function useChat() {
         n8n_url: n8nUrl,
         intent: response.intent,
         created_at: new Date().toISOString(),
+        prompt_trace: response.prompt_trace || null,
       }
       store.addMessage(assistantMsg)
     } catch (err) {
@@ -137,7 +144,7 @@ export function useChat() {
       store.setLoading(false)
       store.setStatusText('')
     }
-  }, [store.activeConversationId, store.isLoading, store.activeWorkflow, store.selectedProvider, store.selectedModel, loadConversations])
+  }, [store.activeConversationId, store.isLoading, store.activeWorkflow, store.selectedProvider, store.selectedModel, store.debugMode, loadConversations])
 
   const newConversation = useCallback(() => {
     store.setActiveConversation(null)

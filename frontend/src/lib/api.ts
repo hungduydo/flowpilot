@@ -51,12 +51,15 @@ async function fetchAPI<T>(path: string, options?: RequestInit): Promise<T> {
 }
 
 // Chat
+import type { PromptTraceEntry } from './types'
+
 export async function sendChatMessage(
   message: string,
   conversationId?: string,
   workflowId?: string,
   provider?: string | null,
   model?: string | null,
+  debug?: boolean,
 ) {
   return fetchAPI<{
     message: string
@@ -65,6 +68,7 @@ export async function sendChatMessage(
     n8n_url?: string | null
     conversation_id?: string
     message_id?: string
+    prompt_trace?: PromptTraceEntry[] | null
   }>('/api/v1/chat', {
     method: 'POST',
     body: JSON.stringify({
@@ -73,6 +77,7 @@ export async function sendChatMessage(
       workflow_id: workflowId || undefined,
       provider: provider || undefined,
       model: model || undefined,
+      debug: debug || false,
     }),
   })
 }

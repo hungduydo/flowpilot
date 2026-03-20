@@ -74,6 +74,10 @@ interface ChatState {
   setSelectedModelSpec: (provider: string | null, model: string | null) => void
   hydrateModel: () => void
 
+  // Debug mode
+  debugMode: boolean
+  setDebugMode: (debug: boolean) => void
+
   // Sidebar
   sidebarOpen: boolean
   toggleSidebar: () => void
@@ -151,6 +155,9 @@ export const useChatStore = create<ChatState>((set) => ({
     const [p, m] = loadPersistedModel()
     set({ selectedProvider: p, selectedModel: m })
   },
+
+  debugMode: false,
+  setDebugMode: (debug) => set({ debugMode: debug }),
 
   sidebarOpen: true,
   toggleSidebar: () => set((state) => ({ sidebarOpen: !state.sidebarOpen })),

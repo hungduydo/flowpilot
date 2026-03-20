@@ -105,6 +105,17 @@ curl -X POST http://localhost:8000/api/v1/chat \
 - Bulk "Import Top 50 Popular" feature
 - API endpoints: search, import, list imported, stats, delete
 
+## Phase 7: LLM Prompt Trace Debugger ✅
+- Request-scoped prompt tracing via Python `contextvars` (zero overhead when disabled)
+- Captures every LLM call: step name, messages, provider/model, temperature, response preview, token usage, duration
+- `debug=true` flag in chat request enables tracing, returns `prompt_trace` array in response
+- Trace step labels: `intent_classification`, `phase1_plan`, `phase2_generate`, `edit_function_calling`, `chat_response`
+- Debug mode toggle in header (amber pulse indicator when active)
+- Debug modal with 2 tabs: "Context Pipeline" (existing) and "Prompt Trace" (new)
+- Step-by-step timeline UI with expandable message cards, color-coded by step type
+- Per-message "View Trace" button on assistant messages when trace data present
+- Also completed: `conversation_history` now wired into editor's LLM messages for edit context
+
 ## Known LLM Generation Issues & Auto-Fixes
 All handled in `generator.py` `_fix_node_parameters()` + `_post_process()`:
 
@@ -135,6 +146,7 @@ All handled in `generator.py` `_fix_node_parameters()` + `_post_process()`:
 - n8n API client: `backend/app/core/n8n_client.py`
 - n8n Template client: `backend/app/core/n8n_template_client.py`
 - Template distiller: `backend/app/rag/template_distiller.py`
+- Prompt trace (debug): `backend/app/core/prompt_trace.py`
 - Retry decorators: `backend/app/core/retry.py`
 - Workflow generator: `backend/app/workflow/generator.py`
 - Workflow validator: `backend/app/workflow/validator.py`

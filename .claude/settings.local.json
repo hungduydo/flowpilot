@@ -11,7 +11,12 @@
       "WebFetch(domain:n8n.io)",
       "WebSearch",
       "WebFetch(domain:latenode.com)",
-      "WebFetch(domain:community.n8n.io)"
+      "WebFetch(domain:community.n8n.io)",
+      "Bash(curl -s http://localhost:8000/api/v1/health)",
+      "Bash(python -m json.tool)",
+      "Bash(python -c \":*)",
+      "Bash(docker compose:*)",
+      "mcp__Claude_Preview__preview_start"
     ]
   }
 }

@@ -64,23 +64,26 @@ class WorkflowEditor:
         # Build prompt with current workflow
         system_prompt = build_edit_prompt(clean_workflow, rag_context)
 
+        # Build user message with optional conversation history for context
+        user_content = ""
+        if conversation_history:
+            user_content += f"## Recent Conversation\n{conversation_history}\n\n"
+        user_content += (
+            f"Please modify the workflow as follows:\n\n{edit_instruction}\n\n"
+            "Call the appropriate edit functions to make these changes."
+        )
+
         messages = [
             {"role": "system", "content": system_prompt},
-            {
-                "role": "user",
-                "content": (
-                    f"Please modify the workflow as follows:\n\n{edit_instruction}\n\n"
-                    "Call the appropriate edit functions to make these changes."
-                ),
-            },
+            {"role": "user", "content": user_content},
         ]
 
         # Get edit operations via function calling (try twice)
-        tool_calls = await function_calling(messages, temperature=0.3, provider=provider, model=model)
+        tool_calls = await function_calling(messages, temperature=0.3, provider=provider, model=model, _trace_step="edit_function_calling")
 
         if not tool_calls:
             logger.warning("No edit operations on first attempt, retrying with higher temperature")
-            tool_calls = await function_calling(messages, temperature=0.7, provider=provider, model=model)
+            tool_calls = await function_calling(messages, temperature=0.7, provider=provider, model=model, _trace_step="edit_function_calling_retry")
 
         if not tool_calls:
             logger.warning("No edit operations returned by LLM after retry — falling back to regeneration")
